@@ -2,20 +2,14 @@ package main
 
 import (
 	"bufio"
-	"flag"
-	"log"
 	"net"
 	"os"
+
+	"github.com/bentranter/torbit"
 )
 
-var (
-	tcpPortAddr  = flag.String("tcp", "3000", "tcp service address")
-	ipAddr       = flag.String("ip", "localhost", "ip service address")
-	logFile      = flag.String("log", "", "log file location")
-	httpPortAddr = flag.String("http", "8000", "http service address")
-
-	logger = log.New(os.Stdout, "Torbit Challenge: ", log.Lshortfile)
-)
+var config = torbit.GetConfig()
+var logger = torbit.GetLogger(config.LogFilename)
 
 func handleConn(conn net.Conn, clientID int, msgs chan string) {
 	// read each message and jam it in the messages channel
@@ -24,6 +18,7 @@ func handleConn(conn net.Conn, clientID int, msgs chan string) {
 		in, err := r.ReadString('\n')
 		if err != nil {
 			// should signal that someone disconnected
+			logger.Println(err.Error())
 			break
 		}
 		// use the clientID, but they should have a name
@@ -45,7 +40,6 @@ func broadcast(conn net.Conn, msg string) {
 }
 
 func main() {
-	flag.Parse()
 
 	// each client gets this dumb id
 	clientCount := 0
@@ -59,7 +53,7 @@ func main() {
 	// incoming messages
 	msgs := make(chan string)
 
-	server, err := net.Listen("tcp", ":"+*tcpPortAddr)
+	server, err := net.Listen("tcp", ":"+config.TCPPortAddr)
 	if err != nil {
 		logger.Fatalln(err)
 		os.Exit(1)
@@ -90,7 +84,7 @@ func main() {
 
 		case msg := <-msgs:
 			// log the message, don't put it in the loop obv
-			logger.Println("New message: ", msg)
+			logger.Print("New message: ", msg)
 
 			// broadcast
 			for conn := range clients {

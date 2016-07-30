@@ -10,22 +10,19 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-var (
-	tcpPortAddr  string
-	ipAddr       string
-	logFilename  string
-	httpPortAddr string
-
-	cfgFilepath = configFile()
-)
+var cfg *Config
 
 const cfgFilename = "config.toml"
 
+// just populate config file based on it...?
 func init() {
-	flag.StringVar(&tcpPortAddr, "tcp", "3000", "tcp service address")
-	flag.StringVar(&ipAddr, "ip", "localhost", "ip service address")
-	flag.StringVar(&logFilename, "log", "", "log file location")
-	flag.StringVar(&httpPortAddr, "http", "8000", "http service address")
+	initcfg := &Config{}
+	flag.StringVar(&initcfg.TCPPortAddr, "tcp", "3000", "tcp service address")
+	flag.StringVar(&initcfg.IPAddr, "ip", "localhost", "ip service address")
+	flag.StringVar(&initcfg.LogFilename, "log", "", "log file location")
+	flag.StringVar(&initcfg.HTTPPortAddr, "http", "8000", "http service address")
+	flag.Parse()
+	cfg = initcfg
 }
 
 type Config struct {
@@ -36,76 +33,30 @@ type Config struct {
 }
 
 func GetConfig() *Config {
-	cfg, err := readConfig()
+	usr, err := user.Current()
 	if err != nil {
-		// we can't read from the file, so a new one should
-		// probs be made
-		println(err.Error())
+		println("Couldn't get user: ", err.Error())
+		return cfg
 	}
 
-	// flags override these
-	if tcpPortAddr != "" {
-		cfg.TCPPortAddr = tcpPortAddr
-	}
-	if ipAddr != "" {
-		cfg.IPAddr = ipAddr
-	}
-	if logFilename != "" {
-		cfg.LogFilename = logFilename
-	}
-	if httpPortAddr != "" {
-		cfg.HTTPPortAddr = httpPortAddr
+	_, err = os.Stat(filepath.Join(usr.HomeDir, cfgFilename))
+	if err != nil {
+		return cfg
 	}
 
+	_, err = toml.DecodeFile(filepath.Join(usr.HomeDir, cfgFilename), &cfg)
+	if err != nil {
+		println("Error decoding file: ", err.Error())
+	}
 	return cfg
 }
 
 func GetLogger(filename string) *log.Logger {
 	prefix := "Torbit Challenge: "
 	flag := log.Lshortfile
-
-	out, err := os.OpenFile(cfgFilepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	out, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil || filename == "" {
 		return log.New(os.Stdout, prefix, flag)
 	}
 	return log.New(out, prefix, flag)
-}
-
-func readConfig() (*Config, error) {
-	cfg := &Config{}
-	_, err := os.Stat(cfgFilepath)
-	if err != nil {
-		writeDefaultConfig()
-		return cfg, err
-	}
-	_, err = toml.DecodeFile(filepath.Dir(cfgFilename), &cfg)
-	if err != nil {
-		// file must be mangled. just use defaults
-		// and rebuild file
-		writeDefaultConfig()
-		println("cant decode, creating new file", err.Error())
-		return cfg, nil
-	}
-	return cfg, nil
-}
-
-func writeDefaultConfig() error {
-	file, err := os.OpenFile(cfgFilepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return err
-	}
-	return toml.NewEncoder(file).Encode(&Config{
-		TCPPortAddr:  tcpPortAddr,
-		IPAddr:       ipAddr,
-		LogFilename:  logFilename,
-		HTTPPortAddr: httpPortAddr,
-	})
-}
-
-func configFile() string {
-	usr, err := user.Current()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(usr.HomeDir, cfgFilename)
 }

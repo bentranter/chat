@@ -40,6 +40,7 @@ func broadcast(conn net.Conn, msg string) {
 }
 
 func main() {
+	logger := torbit.GetLogger(config.LogFilename)
 
 	// each client gets this dumb id
 	clientCount := 0

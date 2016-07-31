@@ -2,70 +2,93 @@ package torbit
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 )
 
-func ServeTCP(l *log.Logger, port string) error {
-	s := &server{
-		logger:     l,
-		clients:    []*client{},
-		newConn:    make(chan net.Conn),
-		msgRcv:     make(chan string),
-		disconnect: make(chan *client),
-	}
-	return s.serve(port)
-}
+const chatHelp = `(chatbot): Hello, welcome to the chat room
+Commands:
+  /help    see this help message again (example: /help)
+  /name    set your name               (example: /name Ben)
+  /id      view your user id           (example: /id)
 
-// i don't like how tighltly coupled this is..
+`
+
+var (
+	maxMsgLen          = 10 // @TODO: IMPLEMENT THESE
+	maxNameLen         = 40
+	errMessageTooLong  = errors.New("Messages must be less than 10 characters")
+	errUsernameTooLong = errors.New("Usernames cannot be more than 40 charcters")
+)
+
 type client struct {
+	id     uint64
 	name   string
+	r      *bufio.Reader
+	w      *bufio.Writer
 	conn   net.Conn
 	server *server
 }
 
 func (c *client) read() {
-	// read each message and jam it in the messages channel
-	r := bufio.NewReader(c.conn)
 	for {
-		in, err := r.ReadString('\n')
+		msg, err := c.r.ReadString('\n')
 		if err != nil {
 			c.server.disconnect <- c
 			break
 		}
-		if strings.HasPrefix(in, "/help") {
-			c.conn.Write([]byte("Usage\n\t/name\tSets you set your name (example: /name Ben)\n\t/help\tShows this help message again\n\n"))
+		// please make this a function (or func map) yikes
+		if strings.HasPrefix(msg, "/help") {
+			c.write(chatHelp)
 			continue
 		}
-		if strings.HasPrefix(in, "/name") {
-			name := strings.TrimSpace(strings.TrimLeft(in, "/name "))
+		if strings.HasPrefix(msg, "/name") {
+			name := strings.TrimSpace(strings.TrimLeft(msg, "/name "))
 			if name == "" {
-				c.conn.Write([]byte("Your name can't be empty\n"))
+				c.write("(chatbot): Your name can't be empty\n")
 				continue
 			}
 			c.name = name
-			c.conn.Write([]byte("Your name is " + name + "\n"))
+			c.write("(chatbot): Your name is " + name + "\n")
 			continue
 		}
-		c.server.msgRcv <- "(" + c.name + "): " + in
+		if strings.HasPrefix(msg, "/id") {
+			idMsg := fmt.Sprintf("(chatbot): Your id is %d\n", c.id)
+			c.write(idMsg)
+			continue
+		}
+
+		c.server.msgRcv <- "(" + c.name + "): " + msg
 	}
 }
 
+func (c *client) write(msg string) error {
+	_, err := c.w.WriteString(msg)
+	if err != nil {
+		return err
+	}
+	return c.w.Flush()
+}
+
+// In order for the server to be cool with TCP and WS based clients,
+// the client here might need to be an interface
 type server struct {
+	seq        uint64
 	logger     *log.Logger
-	clients    []*client     // yay lcients get to maintain their own connection
-	newConn    chan net.Conn // connections received here
-	msgRcv     chan string   // msgs are received here
-	disconnect chan *client  // disconnect via this channel
+	clients    map[uint64]*client
+	newConn    chan net.Conn
+	msgRcv     chan string
+	disconnect chan *client // disconnect via this channel, could be int after change above ismade
 }
 
 // listen is the TCP server that listens
 //
-// this is really tightly coupled with the client. it'd be nice if the client
-// and the server didn't have to care about each other.
-//
-// maybe the disconnect channel can be moved from the server to the client...
+// it's less coupled now but the interface idea above might be the best to reduce
+// coupling. its also a bit too complicated
 func (s *server) serve(port string) error {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
@@ -86,35 +109,54 @@ func (s *server) serve(port string) error {
 
 	for {
 		select {
+		// this should probably be it's own function soon it's pretty involved
 		case conn := <-s.newConn:
+			s.seq++
 			c := &client{
-				name:   "anonymous",
+				id:     s.seq,
+				name:   strconv.Itoa(int(s.seq)),
+				r:      bufio.NewReader(conn),
+				w:      bufio.NewWriter(conn),
 				conn:   conn,
 				server: s,
 			}
-			s.clients = append(s.clients, c)
-			// Write a hello message to their connection
-			conn.Write([]byte("\nHello! Welcome to the chat room!\nType /help to see available commands, or type and message to chat!\n\n"))
+			s.clients[c.id] = c
+			c.write(chatHelp)
+			s.broadcast("(chatbot): New user joined\n")
 			go c.read()
 
 		case msg := <-s.msgRcv:
 			s.logger.Print("Message received: ", msg)
-			for _, client := range s.clients {
-				s.broadcast(client.conn, msg) // might not need a goroutine?
-			}
+			s.broadcast(msg)
 
 		// delete disconnected clients
 		case c := <-s.disconnect:
 			s.logger.Printf("Disconnected user %s\n", c.name)
-			// need to remove user
+			s.broadcast(fmt.Sprintf("(chatbot): user %s left the chat\n", c.name))
+			delete(s.clients, c.id) // remove user
 			c.conn.Close()
 		}
 	}
 }
 
-func (s *server) broadcast(conn net.Conn, msg string) {
-	_, err := conn.Write([]byte(msg))
-	if err != nil {
-		s.logger.Println("Broadcast error: ", err.Error())
+// broadcast is the function to use to handle broadcasting to multiple
+// rooms n stuff
+func (s *server) broadcast(msg string) {
+	for _, c := range s.clients {
+		err := c.write(msg)
+		if err != nil {
+			s.logger.Println("Broadcast error: ", err.Error())
+		}
 	}
+}
+
+func ServeTCP(l *log.Logger, port string) error {
+	s := &server{
+		logger:     l,
+		clients:    make(map[uint64]*client),
+		newConn:    make(chan net.Conn),
+		msgRcv:     make(chan string),
+		disconnect: make(chan *client),
+	}
+	return s.serve(port)
 }

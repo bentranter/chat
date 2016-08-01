@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// this reaallllyy needs to go in main...
 var cfg *Config
 
 const cfgFilename = "config.toml"

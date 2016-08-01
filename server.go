@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"strconv"
-	"strings"
+
+	"github.com/gorilla/websocket"
 )
 
 const chatHelp = `(chatbot): Hello, welcome to the chat room
@@ -18,77 +20,108 @@ Commands:
 
 `
 
+// @TODO: This needs to be a template so the port/ip can be set!
+const homeHTML = `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Chat</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <link href="https://npmcdn.com/basscss@8.0.0/css/basscss.min.css" rel="stylesheet">
+    <style>
+      html, body { font-family: "Proxima Nova", Helvetica, Arial, sans-serif }
+      .bg-blue { background-color: #07c }
+      .white { color: #fff }
+      .bold { font-weight: bold }
+    </style>
+  </head>
+
+  <body class="p2">
+    <h1 class="h1">Welcome to the chat room!</h1>
+    <form id="form" class="flex">
+      <input class="flex-auto px2 py1 bg-white border rounded" type="text" id="msg">
+      <input class="px2 py1 bg-blue white bold border rounded" type="submit" value="Send">
+    </form>
+    <div class="my2" id="box"></div>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+  <script>
+  $(function() {
+
+    var ws = new window.WebSocket("ws://" + document.domain + ":8000/ws");
+    var $msg = $("#msg");
+    var $box = $("#box");
+
+    ws.onclose = function(e) {
+      $box.append("<p class='bold'>Connection closed!</p>");
+    };
+    ws.onmessage = function(e) {
+      $box.append("<p>"+e.data+"</p>");
+      increaseUnreadCount();
+    };
+
+    ws.onerror = function(e) {
+      $box.append("<strong>Error!</strong>")
+    };
+
+    $("#form").submit(function(e) {
+      e.preventDefault();
+      if (!ws) {
+          return;
+      }
+      if (!$msg.val()) {
+          return;
+      }
+      ws.send($msg.val());
+      $msg.val("");
+    });
+
+    document.addEventListener("visibilitychange", resetUnreadCount);
+
+    function increaseUnreadCount() {
+      if (document.hidden === true) {
+        var count = parseInt(document.title.match(/\d+/));
+        if (!count) {
+          document.title = "(1) Chat";
+          return;
+        }
+        document.title = "("+(count+1)+") Chat";
+      }
+    }
+
+    function resetUnreadCount() {
+      if (document.hidden === false) {
+        document.title = "Chat";
+      }
+    }
+
+  });
+  </script>
+  </body>
+</html>
+`
+
 var (
-	maxMsgLen          = 10 // @TODO: IMPLEMENT THESE
+	maxMsgLen          = 10 // @TODO: IMPLEMENT THESE. server should validate
 	maxNameLen         = 40
 	errMessageTooLong  = errors.New("Messages must be less than 10 characters")
 	errUsernameTooLong = errors.New("Usernames cannot be more than 40 charcters")
 )
 
-type client struct {
-	id     uint64
-	name   string
-	r      *bufio.Reader
-	w      *bufio.Writer
-	conn   net.Conn
-	server *server
-}
-
-func (c *client) read() {
-	for {
-		msg, err := c.r.ReadString('\n')
-		if err != nil {
-			c.server.disconnect <- c
-			break
-		}
-		// please make this a function (or func map) yikes
-		if strings.HasPrefix(msg, "/help") {
-			c.write(chatHelp)
-			continue
-		}
-		if strings.HasPrefix(msg, "/name") {
-			name := strings.TrimSpace(strings.TrimLeft(msg, "/name "))
-			if name == "" {
-				c.write("(chatbot): Your name can't be empty\n")
-				continue
-			}
-			c.name = name
-			c.write("(chatbot): Your name is " + name + "\n")
-			continue
-		}
-		if strings.HasPrefix(msg, "/id") {
-			idMsg := fmt.Sprintf("(chatbot): Your id is %d\n", c.id)
-			c.write(idMsg)
-			continue
-		}
-
-		c.server.msgRcv <- "(" + c.name + "): " + msg
-	}
-}
-
-func (c *client) write(msg string) error {
-	_, err := c.w.WriteString(msg)
-	if err != nil {
-		return err
-	}
-	return c.w.Flush()
-}
-
-// In order for the server to be cool with TCP and WS based clients,
-// the client here might need to be an interface
 type server struct {
 	seq        uint64
 	logger     *log.Logger
-	clients    map[uint64]*client
+	clients    map[uint64]client
 	newConn    chan net.Conn
+	newWsConn  chan *websocket.Conn
 	msgRcv     chan string
-	disconnect chan *client // disconnect via this channel, could be int after change above ismade
+	disconnect chan client
 }
 
-// listen is the TCP server that listens
-//
-// it's less coupled now but the interface idea above might be the best to reduce
-// coupling. its also a bit too complicated
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(homeHTML))
+}
+
 func (s *server) serve(port string) error {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
@@ -96,7 +129,7 @@ func (s *server) serve(port string) error {
 	}
 	s.logger.Println("Server started on ", port)
 
-	// accept new conns
+	// TCP Server
 	go func() {
 		for {
 			conn, err := server.Accept()
@@ -107,12 +140,22 @@ func (s *server) serve(port string) error {
 		}
 	}()
 
+	// HTTP Server/Websocket server
+	go func() {
+		http.HandleFunc("/", homeHandler)
+		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+			println("DID SOMETHING")
+			newWsClientHandler(s, w, r)
+		})
+		http.ListenAndServe(":8000", nil)
+	}()
+
 	for {
 		select {
 		// this should probably be it's own function soon it's pretty involved
 		case conn := <-s.newConn:
 			s.seq++
-			c := &client{
+			c := &tcpClient{
 				id:     s.seq,
 				name:   strconv.Itoa(int(s.seq)),
 				r:      bufio.NewReader(conn),
@@ -125,16 +168,28 @@ func (s *server) serve(port string) error {
 			s.broadcast("(chatbot): New user joined\n")
 			go c.read()
 
+		case conn := <-s.newWsConn:
+			s.seq++
+			ws := &wsClient{
+				id:     s.seq,
+				name:   strconv.Itoa(int(s.seq)),
+				conn:   conn,
+				server: s,
+			}
+			s.clients[ws.id] = ws
+			ws.write(chatHelp)
+			s.broadcast("(chatbot): New user joined\n")
+			go ws.read()
+
 		case msg := <-s.msgRcv:
 			s.logger.Print("Message received: ", msg)
 			s.broadcast(msg)
 
-		// delete disconnected clients
 		case c := <-s.disconnect:
-			s.logger.Printf("Disconnected user %s\n", c.name)
-			s.broadcast(fmt.Sprintf("(chatbot): user %s left the chat\n", c.name))
-			delete(s.clients, c.id) // remove user
-			c.conn.Close()
+			s.logger.Printf("Disconnected user %s\n", c.getName())
+			s.broadcast(fmt.Sprintf("(chatbot): user %s left the chat\n", c.getName()))
+			delete(s.clients, c.getID())
+			c.close()
 		}
 	}
 }
@@ -153,10 +208,11 @@ func (s *server) broadcast(msg string) {
 func ServeTCP(l *log.Logger, port string) error {
 	s := &server{
 		logger:     l,
-		clients:    make(map[uint64]*client),
+		clients:    make(map[uint64]client),
 		newConn:    make(chan net.Conn),
+		newWsConn:  make(chan *websocket.Conn),
 		msgRcv:     make(chan string),
-		disconnect: make(chan *client),
+		disconnect: make(chan client),
 	}
 	return s.serve(port)
 }

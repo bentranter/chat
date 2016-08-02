@@ -1,24 +1,107 @@
 package torbit
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
-	"strconv"
-
-	"github.com/gorilla/websocket"
 )
 
 const chatHelp = `(chatbot): Hello, welcome to the chat room
 Commands:
   /help    see this help message again (example: /help)
-  /name    set your name               (example: /name Ben)
-  /id      view your user id           (example: /id)
 
 `
+
+var (
+	maxMsgLen          = 10 // @TODO: IMPLEMENT THESE. server should validate
+	maxNameLen         = 40
+	errMessageTooLong  = errors.New("Messages must be less than 10 characters")
+	errUsernameTooLong = errors.New("Usernames cannot be more than 40 charcters")
+)
+
+type server struct {
+	logger     *log.Logger
+	clients    map[string]client
+	newConn    chan client
+	msgRcv     chan string
+	disconnect chan client
+}
+
+func (s *server) addClient(c client) {
+	s.clients[c.getName()] = c
+	c.write(chatHelp)
+	s.broadcast("(chatbot): New user " + c.getName() + " has joined.\n")
+	go c.read()
+}
+
+func (s *server) serve(port string) error {
+	server, err := net.Listen("tcp", port)
+	if err != nil {
+		return err
+	}
+	s.logger.Println("Server started on ", port)
+
+	// TCP Server
+	go func() {
+		for {
+			conn, err := server.Accept()
+			if err != nil {
+				s.logger.Println(err.Error())
+			}
+			s.newConn <- newTCPClient(conn, s)
+		}
+	}()
+
+	// HTTP Server/Websocket server
+	go func() {
+		http.HandleFunc("/", homeHandler)
+		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+			newWsClientHandler(s, w, r)
+		})
+		http.ListenAndServe(":8000", nil)
+	}()
+
+	for {
+		select {
+		case client := <-s.newConn:
+			s.addClient(client)
+
+		case msg := <-s.msgRcv:
+			s.logger.Print("Message received: ", msg)
+			s.broadcast(msg)
+
+		case c := <-s.disconnect:
+			s.logger.Printf("Disconnected user %s\n", c.getName())
+			s.broadcast(fmt.Sprintf("(chatbot): user %s left the chat\n", c.getName()))
+			delete(s.clients, c.getName())
+			c.close()
+		}
+	}
+}
+
+// broadcast is the function to use to handle broadcasting to multiple
+// rooms n stuff
+func (s *server) broadcast(msg string) {
+	for _, c := range s.clients {
+		err := c.write(msg)
+		if err != nil {
+			s.logger.Println("Broadcast error: ", err.Error())
+		}
+	}
+}
+
+func ServeTCP(l *log.Logger, port string) error {
+	s := &server{
+		logger:     l,
+		clients:    make(map[string]client),
+		newConn:    make(chan client),
+		msgRcv:     make(chan string),
+		disconnect: make(chan client),
+	}
+	return s.serve(port)
+}
 
 // @TODO: This needs to be a template so the port/ip can be set!
 const homeHTML = `<!DOCTYPE html>
@@ -99,120 +182,3 @@ const homeHTML = `<!DOCTYPE html>
   </body>
 </html>
 `
-
-var (
-	maxMsgLen          = 10 // @TODO: IMPLEMENT THESE. server should validate
-	maxNameLen         = 40
-	errMessageTooLong  = errors.New("Messages must be less than 10 characters")
-	errUsernameTooLong = errors.New("Usernames cannot be more than 40 charcters")
-)
-
-type server struct {
-	seq        uint64
-	logger     *log.Logger
-	clients    map[uint64]client
-	newConn    chan net.Conn
-	newWsConn  chan *websocket.Conn
-	msgRcv     chan string
-	disconnect chan client
-}
-
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(homeHTML))
-}
-
-func (s *server) serve(port string) error {
-	server, err := net.Listen("tcp", port)
-	if err != nil {
-		return err
-	}
-	s.logger.Println("Server started on ", port)
-
-	// TCP Server
-	go func() {
-		for {
-			conn, err := server.Accept()
-			if err != nil {
-				s.logger.Println(err.Error())
-			}
-			s.newConn <- conn
-		}
-	}()
-
-	// HTTP Server/Websocket server
-	go func() {
-		http.HandleFunc("/", homeHandler)
-		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-			println("DID SOMETHING")
-			newWsClientHandler(s, w, r)
-		})
-		http.ListenAndServe(":8000", nil)
-	}()
-
-	for {
-		select {
-		// this should probably be it's own function soon it's pretty involved
-		case conn := <-s.newConn:
-			s.seq++
-			c := &tcpClient{
-				id:     s.seq,
-				name:   strconv.Itoa(int(s.seq)),
-				r:      bufio.NewReader(conn),
-				w:      bufio.NewWriter(conn),
-				conn:   conn,
-				server: s,
-			}
-			s.clients[c.id] = c
-			c.write(chatHelp)
-			s.broadcast("(chatbot): New user joined\n")
-			go c.read()
-
-		case conn := <-s.newWsConn:
-			s.seq++
-			ws := &wsClient{
-				id:     s.seq,
-				name:   strconv.Itoa(int(s.seq)),
-				conn:   conn,
-				server: s,
-			}
-			s.clients[ws.id] = ws
-			ws.write(chatHelp)
-			s.broadcast("(chatbot): New user joined\n")
-			go ws.read()
-
-		case msg := <-s.msgRcv:
-			s.logger.Print("Message received: ", msg)
-			s.broadcast(msg)
-
-		case c := <-s.disconnect:
-			s.logger.Printf("Disconnected user %s\n", c.getName())
-			s.broadcast(fmt.Sprintf("(chatbot): user %s left the chat\n", c.getName()))
-			delete(s.clients, c.getID())
-			c.close()
-		}
-	}
-}
-
-// broadcast is the function to use to handle broadcasting to multiple
-// rooms n stuff
-func (s *server) broadcast(msg string) {
-	for _, c := range s.clients {
-		err := c.write(msg)
-		if err != nil {
-			s.logger.Println("Broadcast error: ", err.Error())
-		}
-	}
-}
-
-func ServeTCP(l *log.Logger, port string) error {
-	s := &server{
-		logger:     l,
-		clients:    make(map[uint64]client),
-		newConn:    make(chan net.Conn),
-		newWsConn:  make(chan *websocket.Conn),
-		msgRcv:     make(chan string),
-		disconnect: make(chan client),
-	}
-	return s.serve(port)
-}

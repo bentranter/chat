@@ -7,10 +7,14 @@ import (
 )
 
 type wsClient struct {
-	id     uint64
 	name   string
 	conn   *websocket.Conn
 	server *server
+}
+
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(homeHTML))
 }
 
 func newWsClientHandler(s *server, w http.ResponseWriter, r *http.Request) {
@@ -19,19 +23,34 @@ func newWsClientHandler(s *server, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.newWsConn <- wsconn
-}
 
-func (ws *wsClient) getID() uint64 {
-	return ws.id
+	var name string
+	wsconn.WriteMessage(websocket.TextMessage, []byte("(chatbot): Please enter your username.\n "))
+	for {
+		_, n, err := wsconn.ReadMessage()
+		if err != nil {
+			s.logger.Println("Error reading from new websocket connection: ", err.Error())
+			wsconn.Close()
+		}
+		username := string(n)
+		if ok := s.clients[username]; ok == nil {
+			name = string(username)
+			break
+		}
+		wsconn.WriteMessage(websocket.TextMessage, []byte("(chatbot): Sorry, the name "+username+" is already taken. Please choose another one.\n"))
+		continue
+	}
+
+	ws := &wsClient{
+		name:   name,
+		conn:   wsconn,
+		server: s,
+	}
+	s.newConn <- ws
 }
 
 func (ws *wsClient) getName() string {
 	return ws.name
-}
-
-func (ws *wsClient) setName(name string) {
-	ws.name = name
 }
 
 func (ws *wsClient) read() {
@@ -46,7 +65,6 @@ func (ws *wsClient) read() {
 		}
 		ws.server.msgRcv <- "(" + ws.name + "): " + string(msg) + "\n"
 	}
-
 }
 
 func (ws *wsClient) write(msg string) error {

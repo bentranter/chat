@@ -3,10 +3,10 @@ package torbit
 import (
 	"bufio"
 	"net"
+	"strings"
 )
 
 type tcpClient struct {
-	id     uint64
 	name   string
 	r      *bufio.Reader
 	w      *bufio.Writer
@@ -14,16 +14,41 @@ type tcpClient struct {
 	server *server
 }
 
-func (c *tcpClient) getID() uint64 {
-	return c.id
+func newTCPClient(conn net.Conn, s *server) *tcpClient {
+	var name string
+	w := bufio.NewWriter(conn)
+	r := bufio.NewReader(conn)
+	w.WriteString("(chatbot): Please enter your username: ")
+	w.Flush()
+
+	for {
+		n, err := r.ReadString('\n')
+		if err != nil {
+			s.logger.Println("Error reading from new client: ", err.Error())
+			conn.Close()
+		}
+		n = strings.TrimSpace(n)
+		if ok := s.clients[n]; ok == nil {
+			name = n
+			break
+		}
+		// name is already taken
+		w.WriteString("(chatbot): Sorry, the name " + n + " is already taken. Please choose another one: ")
+		w.Flush()
+		continue
+	}
+
+	return &tcpClient{
+		name:   name,
+		r:      r,
+		w:      w,
+		conn:   conn,
+		server: s,
+	}
 }
 
 func (c *tcpClient) getName() string {
 	return c.name
-}
-
-func (c *tcpClient) setName(name string) {
-	c.name = name
 }
 
 func (c *tcpClient) read() {

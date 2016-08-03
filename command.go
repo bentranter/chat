@@ -25,8 +25,21 @@ type command func(c client, arg string)
 
 var commands = map[string]command{
 	"/help": helpCmd,
+	"/join": joinRoomCmd,
 }
 
 func helpCmd(c client, _ string) {
 	c.write(chatHelp)
+}
+
+func joinRoomCmd(c client, arg string) {
+	if arg == "" {
+		c.write("Room name cannot be empty\n")
+		return
+	}
+	ch := c.roomChangeCh()
+	ch <- &roomChange{
+		newRoomName: arg,
+		c:           c,
+	}
 }

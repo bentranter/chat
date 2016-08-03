@@ -8,6 +8,7 @@ import (
 
 type tcpClient struct {
 	name   string
+	room   string
 	r      *bufio.Reader
 	w      *bufio.Writer
 	conn   net.Conn
@@ -28,7 +29,7 @@ func newTCPClient(conn net.Conn, s *server) *tcpClient {
 			conn.Close()
 		}
 		n = strings.TrimSpace(n)
-		if ok := s.clients[n]; ok == nil {
+		if _, ok := s.clients[n]; !ok { // they already online baby
 			name = n
 			break
 		}
@@ -40,6 +41,7 @@ func newTCPClient(conn net.Conn, s *server) *tcpClient {
 
 	return &tcpClient{
 		name:   name,
+		room:   defaultRoomName,
 		r:      r,
 		w:      w,
 		conn:   conn,
@@ -51,17 +53,32 @@ func (c *tcpClient) getName() string {
 	return c.name
 }
 
+func (c *tcpClient) getRoom() string {
+	return c.room
+}
+
+func (c *tcpClient) setRoom(room string) {
+	c.room = room
+}
+
+func (c *tcpClient) roomChangeCh() chan *roomChange {
+	return c.server.change // dumb
+}
+
 func (c *tcpClient) read() {
 	for {
 		msg, err := c.r.ReadString('\n')
 		if err != nil {
-			c.server.disconnect <- c
+			c.server.leave <- c
 			break
 		}
 		if ok := handleCommand(c, msg); ok {
 			continue
 		}
-		c.server.msgRcv <- "(" + c.name + "): " + msg
+		c.server.recv <- &message{
+			content:  "(" + c.name + "): " + msg,
+			roomName: c.room,
+		}
 	}
 }
 

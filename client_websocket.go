@@ -8,6 +8,7 @@ import (
 
 type wsClient struct {
 	name   string
+	room   string
 	conn   *websocket.Conn
 	server *server
 }
@@ -33,37 +34,52 @@ func newWsClientHandler(s *server, w http.ResponseWriter, r *http.Request) {
 			wsconn.Close()
 		}
 		username := string(n)
-		if ok := s.clients[username]; ok == nil {
+		if _, ok := s.clients[username]; !ok {
 			name = string(username)
 			break
 		}
 		wsconn.WriteMessage(websocket.TextMessage, []byte("(chatbot): Sorry, the name "+username+" is already taken. Please choose another one.\n"))
-		continue
 	}
 
 	ws := &wsClient{
 		name:   name,
+		room:   defaultRoomName,
 		conn:   wsconn,
 		server: s,
 	}
-	s.newConn <- ws
+	s.join <- ws
 }
 
 func (ws *wsClient) getName() string {
 	return ws.name
 }
 
+func (ws *wsClient) getRoom() string {
+	return ws.room
+}
+
+func (ws *wsClient) setRoom(room string) {
+	ws.room = room
+}
+
+func (ws *wsClient) roomChangeCh() chan *roomChange {
+	return ws.server.change
+}
+
 func (ws *wsClient) read() {
 	for {
 		_, msg, err := ws.conn.ReadMessage()
 		if err != nil {
-			ws.server.disconnect <- ws
+			ws.server.leave <- ws
 			break
 		}
 		if ok := handleCommand(ws, string(msg)); ok {
 			continue
 		}
-		ws.server.msgRcv <- "(" + ws.name + "): " + string(msg) + "\n"
+		ws.server.recv <- &message{
+			content:  "(" + ws.name + "): " + string(msg) + "\n",
+			roomName: ws.room,
+		}
 	}
 }
 

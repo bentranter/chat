@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-func handleCommand(c client, msg string) bool {
+func handleCommand(s *server, c client, msg string) bool {
 	if !strings.HasPrefix(msg, "/") {
 		return false
 	}
@@ -17,29 +17,47 @@ func handleCommand(c client, msg string) bool {
 	}
 
 	cmdArg := strings.TrimSpace(strings.TrimPrefix(msg, cmd))
-	cmdFunc(c, cmdArg)
+	cmdFunc(s, c, cmdArg)
 	return true
 }
 
-type command func(c client, arg string)
+type command func(s *server, c client, arg string)
 
 var commands = map[string]command{
-	"/help": helpCmd,
-	"/join": joinRoomCmd,
+	"/help":    helpCmd,
+	"/join":    joinRoomCmd,
+	"/newroom": newRoomCmd,
 }
 
-func helpCmd(c client, _ string) {
+func helpCmd(_ *server, c client, _ string) {
 	c.write(chatHelp)
 }
 
-func joinRoomCmd(c client, arg string) {
+func joinRoomCmd(s *server, c client, arg string) {
 	if arg == "" {
 		c.write("Room name cannot be empty\n")
 		return
 	}
-	ch := c.roomChangeCh()
-	ch <- &roomChange{
+	err := s.changeRoom(&roomChange{
 		newRoomName: arg,
 		c:           c,
+	})
+	if err != nil {
+		c.write(err.Error())
+		return
 	}
+	c.write("Joined room " + arg + ".\n")
+}
+
+func newRoomCmd(s *server, c client, arg string) {
+	if arg == "" {
+		c.write("New room name cannot be empty\n")
+		return
+	}
+	err := s.newRoom(arg)
+	if err != nil {
+		c.write(err.Error())
+		return
+	}
+	c.write(("(chatbot): New room " + arg + " created successfully\n"))
 }

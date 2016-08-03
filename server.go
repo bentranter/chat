@@ -14,7 +14,8 @@ const (
 	chatHelp        = `(chatbot): Hello, welcome to the chat room
 Commands:
   /help    see this help message again (example: /help)
-  /join    join a room (example: /join general)
+  /join    join a room                 (example: /join general)
+  /newroom create a new room           (example: /newroom random)
 
 `
 )
@@ -45,7 +46,6 @@ type server struct {
 	rooms   map[string]room // room name -> room
 	join    chan client
 	recv    chan *message
-	change  chan *roomChange
 	leave   chan client
 }
 
@@ -125,14 +125,6 @@ func (s *server) serve(port string) error {
 			s.logger.Print("Message received: ", msg.content)
 			s.broadcast(msg)
 
-		case changeReq := <-s.change:
-			err := s.changeRoom(changeReq)
-			if err != nil {
-				changeReq.c.write(err.Error() + "\n")
-				continue
-			}
-			changeReq.c.write("Changed to room " + changeReq.newRoomName + "\n")
-
 		case c := <-s.leave:
 			s.logger.Printf("Disconnected user %s\n", c.getName())
 			s.broadcast(&message{
@@ -168,14 +160,9 @@ func ServeTCP(l *log.Logger, port string) error {
 		rooms:   make(map[string]room),
 		join:    make(chan client),
 		recv:    make(chan *message),
-		change:  make(chan *roomChange),
 		leave:   make(chan client),
 	}
 	err := s.newRoom(defaultRoomName)
-	if err != nil {
-		return err
-	}
-	err = s.newRoom("chat")
 	if err != nil {
 		return err
 	}

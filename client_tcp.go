@@ -61,10 +61,6 @@ func (c *tcpClient) setRoom(room string) {
 	c.room = room
 }
 
-func (c *tcpClient) roomChangeCh() chan *roomChange {
-	return c.server.change // dumb
-}
-
 func (c *tcpClient) read() {
 	for {
 		msg, err := c.r.ReadString('\n')
@@ -72,7 +68,7 @@ func (c *tcpClient) read() {
 			c.server.leave <- c
 			break
 		}
-		if ok := handleCommand(c, msg); ok {
+		if ok := handleCommand(c.server, c, msg); ok {
 			continue
 		}
 		c.server.recv <- &message{

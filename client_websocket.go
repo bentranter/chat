@@ -62,10 +62,6 @@ func (ws *wsClient) setRoom(room string) {
 	ws.room = room
 }
 
-func (ws *wsClient) roomChangeCh() chan *roomChange {
-	return ws.server.change
-}
-
 func (ws *wsClient) read() {
 	for {
 		_, msg, err := ws.conn.ReadMessage()
@@ -73,7 +69,7 @@ func (ws *wsClient) read() {
 			ws.server.leave <- ws
 			break
 		}
-		if ok := handleCommand(ws, string(msg)); ok {
+		if ok := handleCommand(ws.server, ws, string(msg)); ok {
 			continue
 		}
 		ws.server.recv <- &message{

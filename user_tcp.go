@@ -25,9 +25,8 @@ type tcpUser struct {
 	currentRoomName string
 	username        string
 	r               *bufio.Reader
-	w               *bufio.Writer
 	conn            net.Conn
-	receiver        chan *message
+	send            chan<- *message
 }
 
 func newTCPUser(conn net.Conn, h *hub) *tcpUser {
@@ -56,9 +55,8 @@ func newTCPUser(conn net.Conn, h *hub) *tcpUser {
 		currentRoomName: defaultChannelName,
 		username:        name,
 		r:               bufio.NewReader(conn),
-		w:               bufio.NewWriter(conn),
 		conn:            conn,
-		receiver:        h.messageCh,
+		send:            h.messageCh,
 	}
 }
 
@@ -66,22 +64,34 @@ func (tc *tcpUser) read() error {
 	for {
 		messageText, err := tc.r.ReadString('\n')
 		if err != nil {
-			tc.receiver <- newMessage("everyone", tc.username, tc.username+" has left that chat\n", quit)
+			tc.send <- newMessage("everyone", tc.username, tc.username+" has left that chat\n", quit)
 			return err
 		}
 		if ok := tc.handleCommand(messageText); ok {
 			continue
 		}
-		tc.receiver <- newMessage(tc.currentRoomName, tc.username, messageText, text)
+		tc.send <- newMessage(tc.currentRoomName, tc.username, messageText, text)
 	}
 }
 
-func (tc *tcpUser) write(message string) error {
-	_, err := tc.w.WriteString(message)
+func (tc *tcpUser) write(message *message) error {
+	switch message.messageType {
+	case text:
+		return tc.writeText("(" + message.username + " to " + message.channel + "): " + message.text)
+
+	case join, create:
+		tc.currentRoomName = message.channel
+		return tc.writeText(message.text)
+	}
+	return nil
+}
+
+func (tc *tcpUser) writeText(text string) error {
+	_, err := tc.conn.Write([]byte(text))
 	if err != nil {
 		return err
 	}
-	return tc.w.Flush()
+	return nil
 }
 
 func (tc *tcpUser) close() {
@@ -99,7 +109,7 @@ func (tc *tcpUser) handleCommand(s string) bool {
 	cmd := strings.TrimSpace(strings.Split(s, " ")[0])
 	cmdFunc, ok := commands[cmd]
 	if !ok {
-		tc.write("Command " + cmd + " doesn't exist.\n")
+		tc.write(newMessage(tc.currentRoomName, tc.username, "Command "+cmd+" doesn't exist\n", text))
 		return true
 	}
 	cmdArg := strings.TrimSpace(strings.TrimPrefix(s, cmd))
@@ -108,24 +118,21 @@ func (tc *tcpUser) handleCommand(s string) bool {
 }
 
 func helpCmd(tc *tcpUser, _ string) {
-	tc.write(chatHelp)
+	tc.write(newMessage("you", "server", chatHelp, text))
 }
 
 func newRoomCmd(tc *tcpUser, arg string) {
 	if arg == tc.currentRoomName {
-		tc.write("You're alread in that room\n")
+		tc.write(newMessage("you", "server", "You're already in that room\n", text))
 		return
 	}
-	tc.receiver <- newMessage(arg, tc.username, tc.username+" created new channel "+arg, create)
-	tc.currentRoomName = arg
-	tc.write("Created and joined room " + arg + "\n")
+	tc.send <- newMessage(arg, tc.username, tc.username+" created new channel "+arg, create)
 }
 
 func joinRoomCmd(tc *tcpUser, arg string) {
 	if arg == tc.currentRoomName {
-		tc.write("You're alread in that room\n")
+		tc.write(newMessage("you", "server", "You're already in that room\n", text))
 		return
 	}
-	tc.receiver <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, join)
-	tc.currentRoomName = arg
+	tc.send <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, join)
 }

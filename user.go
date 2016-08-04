@@ -6,7 +6,7 @@ import (
 
 type connection interface {
 	read() error
-	write(message string) error
+	write(message *message) error
 	close()
 }
 
@@ -19,7 +19,7 @@ type User struct {
 
 func createTCPUser(conn net.Conn, h *hub) *User {
 	u := newTCPUser(conn, h)
-	u.write(chatHelp)
+	u.write(newMessage(u.currentRoomName, u.username, chatHelp, text))
 	return &User{
 		name: u.name(),
 		conn: u,

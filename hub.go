@@ -1,7 +1,6 @@
 package torbit
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"time"
@@ -44,7 +43,7 @@ type channel struct {
 	broadcastCh chan *message
 }
 
-func newChannel(channelName string, activeUsers map[string]*User) *channel {
+func newChannel(channelName string, activeUsers map[string]*User, createdBy string) *channel {
 	ch := &channel{
 		name:        channelName,
 		users:       make(map[*User]bool),
@@ -52,17 +51,21 @@ func newChannel(channelName string, activeUsers map[string]*User) *channel {
 		broadcastCh: make(chan *message),
 	}
 	ch.activeUsers = activeUsers
-	go ch.broadcast()
+	if createdBy != "" {
+		user := ch.activeUsers[createdBy]
+		ch.users[user] = true
+	}
+	ch.broadcast()
 	return ch
 }
 
 func (c *channel) join(u *User) {
 	if _, ok := c.users[u]; ok {
-		u.conn.write("Changing to channel " + c.name + "\n")
+		u.conn.write(newMessage(c.name, u.name, "Changing to channel "+c.name+"\n", join))
 		return
 	}
 	c.users[u] = true
-	c.broadcastCh <- newMessage(c.name, u.name, u.name+" has joined\n", text)
+	c.broadcastCh <- newMessage(c.name, u.name, u.name+" has joined "+c.name+"\n", text)
 }
 
 func (c *channel) leave(u *User) {
@@ -70,18 +73,21 @@ func (c *channel) leave(u *User) {
 }
 
 func (c *channel) broadcast() {
-	for {
-		msg := <-c.broadcastCh
-		for u := range c.users {
-			if _, ok := c.activeUsers[u.name]; !ok {
-				continue
-			}
-			err := u.conn.write(fmt.Sprintf("(%s to %s): %s", msg.username, msg.channel, msg.text))
-			if err != nil {
-				println("Broadcast error: ", err.Error())
+	go func() {
+		for {
+			msg := <-c.broadcastCh
+			for u := range c.users {
+				if _, ok := c.activeUsers[u.name]; !ok {
+					continue
+				}
+
+				err := u.conn.write(msg)
+				if err != nil {
+					println("Broadcast error: ", err.Error())
+				}
 			}
 		}
-	}
+	}()
 }
 
 type hub struct {
@@ -117,9 +123,12 @@ func (h *hub) joinChannel(m *message) {
 		ch.join(user)
 		return
 	}
-	user.conn.write("Sorry, the channel " + m.channel + " doesn't exist.\n")
+	m.text = "Sorry, the channel " + m.channel + " doesn't exist.\n"
+	m.messageType = text
+	user.conn.write(m)
 }
 
+// somehow doesn't atually join
 func (h *hub) createChannel(m *message) {
 	user, ok := h.users[m.username]
 	if !ok {
@@ -130,13 +139,13 @@ func (h *hub) createChannel(m *message) {
 		ch.join(user)
 		return
 	}
-	newCh := newChannel(m.channel, h.users)
+	newCh := newChannel(m.channel, h.users, user.name)
 	h.channels[m.channel] = newCh
 	newCh.join(user)
 }
 
 func (h *hub) run() {
-	h.channels[defaultChannelName] = newChannel(defaultChannelName, h.users)
+	h.channels[defaultChannelName] = newChannel(defaultChannelName, h.users, "")
 	for {
 		select {
 		case user := <-h.userCh:
@@ -145,16 +154,13 @@ func (h *hub) run() {
 			h.newUser(user)
 
 		case message := <-h.messageCh:
-			h.logger.Printf("DEBUG: (%s to %s): %s", message.username, message.channel, message.text)
 			switch message.messageType {
 
 			case join:
 				h.joinChannel(message)
 
 			case create:
-				// need to check for already created -- if so, then join it
-				h.channels[message.channel] = newChannel(message.channel, h.users)
-				h.channels[message.channel].users[h.users[message.username]] = true
+				h.createChannel(message)
 
 			case leave:
 				delete(h.channels[message.channel].users, h.users[message.username])
@@ -165,8 +171,9 @@ func (h *hub) run() {
 
 			case quit:
 				h.logger.Printf("%s", message.text)
-				h.users[message.username].conn.close() // pls panic
+				h.users[message.username].conn.close()
 				delete(h.users, message.username)
+				// broadcast to all connected users
 				h.channels[defaultChannelName].broadcastCh <- message
 			}
 		}

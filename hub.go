@@ -39,15 +39,18 @@ func newMessage(channel, username, text string, messageType messageType) *messag
 type channel struct {
 	name        string
 	users       map[*User]bool
+	activeUsers map[string]*User
 	broadcastCh chan *message
 }
 
-func newChannel(channelName string) *channel {
+func newChannel(channelName string, activeUsers map[string]*User) *channel {
 	ch := &channel{
 		name:        channelName,
 		users:       make(map[*User]bool),
+		activeUsers: make(map[string]*User),
 		broadcastCh: make(chan *message),
 	}
+	ch.activeUsers = activeUsers
 	go ch.broadcast()
 	return ch
 }
@@ -66,9 +69,11 @@ func (c *channel) broadcast() {
 	for {
 		msg := <-c.broadcastCh
 		for u := range c.users {
+			if _, ok := c.activeUsers[u.name]; !ok {
+				continue
+			}
 			err := u.conn.write(fmt.Sprintf("(%s to %s): %s", msg.username, msg.channel, msg.text))
 			if err != nil {
-				// need to close and remove their connection
 				println("Broadcast error: ", err.Error())
 			}
 		}
@@ -94,7 +99,7 @@ func newHub(l *log.Logger) *hub {
 }
 
 func (h *hub) run() {
-	h.channels[defaultChannelName] = newChannel(defaultChannelName)
+	h.channels[defaultChannelName] = newChannel(defaultChannelName, h.users)
 	for {
 		select {
 		case user := <-h.userCh:
@@ -116,6 +121,7 @@ func (h *hub) run() {
 
 			case quit:
 				h.logger.Printf("%s", message.text)
+				h.users[message.username].conn.close() // pls panic
 				delete(h.users, message.username)
 				h.channels[defaultChannelName].broadcastCh <- message
 			}
@@ -145,6 +151,11 @@ func (h *hub) serve(port string) error {
 	return nil
 }
 
+func ListenAndServe(l *log.Logger, port string) error {
+	h := newHub(l)
+	return h.serve(port)
+}
+
 // func (s *server) serve(port string) error {
 // 	// HTTP Server/Websocket server
 // 	go func() {
@@ -155,11 +166,6 @@ func (h *hub) serve(port string) error {
 // 		http.ListenAndServe(":8000", nil)
 // 	}()
 // }
-
-func ListenAndServe(l *log.Logger, port string) error {
-	h := newHub(l)
-	return h.serve(port)
-}
 
 // // @TODO: This needs to be a template so the port/ip can be set!
 // const homeHTML = `<!DOCTYPE html>

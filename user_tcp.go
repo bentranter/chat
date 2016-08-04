@@ -63,7 +63,7 @@ func (tc *tcpUser) read() error {
 	for {
 		messageText, err := tc.r.ReadString('\n')
 		if err != nil {
-			tc.receiver <- newMessage("everyone", "chatbot", tc.username+" has left that chat\n", quit)
+			tc.receiver <- newMessage("everyone", tc.username, tc.username+" has left that chat\n", quit)
 			return err
 		}
 		if ok := tc.handleCommand(messageText); ok {

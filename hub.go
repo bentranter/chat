@@ -40,7 +40,6 @@ type channel struct {
 	name        string
 	users       map[*User]bool
 	activeUsers map[string]*User
-	broadcastCh chan *message
 }
 
 func newChannel(channelName string, activeUsers map[string]*User, createdBy string) *channel {
@@ -48,14 +47,12 @@ func newChannel(channelName string, activeUsers map[string]*User, createdBy stri
 		name:        channelName,
 		users:       make(map[*User]bool),
 		activeUsers: make(map[string]*User),
-		broadcastCh: make(chan *message),
 	}
 	ch.activeUsers = activeUsers
 	if createdBy != "" {
 		user := ch.activeUsers[createdBy]
 		ch.users[user] = true
 	}
-	ch.broadcast()
 	return ch
 }
 
@@ -65,29 +62,25 @@ func (c *channel) join(u *User) {
 		return
 	}
 	c.users[u] = true
-	c.broadcastCh <- newMessage(c.name, u.name, u.name+" has joined "+c.name+"\n", text)
+	c.broadcast(newMessage(c.name, u.name, u.name+" has joined "+c.name+"\n", text))
 }
 
 func (c *channel) leave(u *User) {
 	delete(c.users, u)
 }
 
-func (c *channel) broadcast() {
-	go func() {
-		for {
-			msg := <-c.broadcastCh
-			for u := range c.users {
-				if _, ok := c.activeUsers[u.name]; !ok {
-					continue
-				}
-
-				err := u.conn.write(msg)
-				if err != nil {
-					println("Broadcast error: ", err.Error())
-				}
-			}
+// may need goroutine for range statement
+func (c *channel) broadcast(m *message) {
+	for u := range c.users {
+		if _, ok := c.activeUsers[u.name]; !ok {
+			continue
 		}
-	}()
+
+		err := u.conn.write(m)
+		if err != nil {
+			println("Broadcast error: ", err.Error())
+		}
+	}
 }
 
 type hub struct {
@@ -167,14 +160,14 @@ func (h *hub) run() {
 
 			case text:
 				h.logger.Printf("(%s to %s): %s", message.username, message.channel, message.text)
-				h.channels[message.channel].broadcastCh <- message
+				h.channels[message.channel].broadcast(message)
 
 			case quit:
 				h.logger.Printf("%s", message.text)
 				h.users[message.username].conn.close()
 				delete(h.users, message.username)
 				// broadcast to all connected users
-				h.channels[defaultChannelName].broadcastCh <- message
+				h.channels[defaultChannelName].broadcast(message)
 			}
 		}
 	}

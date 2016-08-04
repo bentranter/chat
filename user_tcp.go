@@ -4,16 +4,12 @@ import (
 	"bufio"
 	"net"
 	"strings"
-	"time"
 )
 
-const chatHelp = `(chatbot): Hello, welcome to the chat room
+const chatHelp = `(chatbot to you): Hello, welcome to the chat room
 Commands:
   /help    see this help message again (example: /help)
-  /rooms   list all rooms              (example: /rooms)
   /join    join a room                 (example: /join general)
-  /newroom create a new room           (example: /newroom random)
-
 `
 
 type command func(tc *tcpUser, arg string)
@@ -31,15 +27,35 @@ type tcpUser struct {
 	receiver        chan *message
 }
 
-func newTCPUser(conn net.Conn, receiver chan *message) *tcpUser {
-	// in here, read name, etc
+func newTCPUser(conn net.Conn, h *hub) *tcpUser {
+	var name string
+	w := bufio.NewWriter(conn)
+	r := bufio.NewReader(conn)
+	w.WriteString("Please enter your username: ")
+	w.Flush()
+
+	for {
+		n, err := r.ReadString('\n')
+		if err != nil {
+			conn.Close()
+		}
+		n = strings.TrimSpace(n)
+		if _, ok := h.users[n]; !ok {
+			name = n
+			break
+		}
+		w.WriteString("(chatbot): Sorry, the name " + n + " is already taken. Please choose another one: ")
+		w.Flush()
+		continue
+	}
+
 	return &tcpUser{
 		currentRoomName: defaultChannelName,
-		username:        "pee",
+		username:        name,
 		r:               bufio.NewReader(conn),
 		w:               bufio.NewWriter(conn),
 		conn:            conn,
-		receiver:        receiver,
+		receiver:        h.messageCh,
 	}
 }
 
@@ -47,19 +63,13 @@ func (tc *tcpUser) read() error {
 	for {
 		messageText, err := tc.r.ReadString('\n')
 		if err != nil {
-			println(err.Error())
+			tc.receiver <- newMessage("everyone", "chatbot", tc.username+" has left that chat\n", quit)
 			return err
 		}
 		if ok := tc.handleCommand(messageText); ok {
 			continue
 		}
-		tc.receiver <- &message{
-			channel:     tc.currentRoomName,
-			username:    tc.username,
-			text:        messageText,
-			time:        time.Now(),
-			messageType: text,
-		}
+		tc.receiver <- newMessage(tc.currentRoomName, tc.username, messageText, text)
 	}
 }
 

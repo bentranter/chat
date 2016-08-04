@@ -15,6 +15,7 @@ const (
 	join = messageType(iota)
 	leave
 	text
+	quit
 )
 
 type message struct {
@@ -25,6 +26,16 @@ type message struct {
 	messageType messageType
 }
 
+func newMessage(channel, username, text string, messageType messageType) *message {
+	return &message{
+		channel:     channel,
+		username:    username,
+		text:        text,
+		time:        time.Now(),
+		messageType: messageType,
+	}
+}
+
 type channel struct {
 	name        string
 	users       map[*User]bool
@@ -32,16 +43,18 @@ type channel struct {
 }
 
 func newChannel(channelName string) *channel {
-	return &channel{
+	ch := &channel{
 		name:        channelName,
 		users:       make(map[*User]bool),
 		broadcastCh: make(chan *message),
 	}
+	go ch.broadcast()
+	return ch
 }
 
 func (c *channel) join(u *User) {
 	c.users[u] = true
-	go c.broadcast()
+	c.broadcastCh <- newMessage(c.name, u.name, u.name+" has joined\n", text)
 	go u.conn.read()
 }
 
@@ -55,7 +68,8 @@ func (c *channel) broadcast() {
 		for u := range c.users {
 			err := u.conn.write(fmt.Sprintf("(%s to %s): %s", msg.username, msg.channel, msg.text))
 			if err != nil {
-				println("ERROR!: ", err.Error())
+				// need to close and remove their connection
+				println("Broadcast error: ", err.Error())
 			}
 		}
 	}
@@ -100,7 +114,10 @@ func (h *hub) run() {
 				h.logger.Printf("(%s to %s): %s", message.username, message.channel, message.text)
 				h.channels[message.channel].broadcastCh <- message
 
-				// need a quit case
+			case quit:
+				h.logger.Printf("%s", message.text)
+				delete(h.users, message.username)
+				h.channels[defaultChannelName].broadcastCh <- message
 			}
 		}
 	}
@@ -119,11 +136,11 @@ func (h *hub) serve(port string) error {
 			if err != nil {
 				h.logger.Println(err.Error())
 			}
-			h.userCh <- createTCPUser(conn, h.messageCh)
+			newUser := createTCPUser(conn, h)
+			h.userCh <- newUser
 		}
 	}()
 
-	// h.run() blocks forever
 	h.run()
 	return nil
 }

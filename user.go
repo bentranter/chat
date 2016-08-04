@@ -17,8 +17,9 @@ type User struct {
 	conn connection
 }
 
-func createTCPUser(conn net.Conn, receiver chan *message) *User {
-	u := newTCPUser(conn, receiver)
+func createTCPUser(conn net.Conn, h *hub) *User {
+	u := newTCPUser(conn, h)
+	u.write(chatHelp)
 	return &User{
 		name: u.name(),
 		conn: u,

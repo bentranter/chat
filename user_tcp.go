@@ -112,13 +112,20 @@ func helpCmd(tc *tcpUser, _ string) {
 }
 
 func newRoomCmd(tc *tcpUser, arg string) {
+	if arg == tc.currentRoomName {
+		tc.write("You're alread in that room\n")
+		return
+	}
 	tc.receiver <- newMessage(arg, tc.username, tc.username+" created new channel "+arg, create)
-	tc.currentRoomName = arg // risky
+	tc.currentRoomName = arg
 	tc.write("Created and joined room " + arg + "\n")
 }
 
 func joinRoomCmd(tc *tcpUser, arg string) {
+	if arg == tc.currentRoomName {
+		tc.write("You're alread in that room\n")
+		return
+	}
 	tc.receiver <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, join)
 	tc.currentRoomName = arg
-	tc.write("Joined room " + arg + "\n")
 }

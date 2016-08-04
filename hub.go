@@ -57,6 +57,10 @@ func newChannel(channelName string, activeUsers map[string]*User) *channel {
 }
 
 func (c *channel) join(u *User) {
+	if _, ok := c.users[u]; ok {
+		u.conn.write("Changing to channel " + c.name + "\n")
+		return
+	}
 	c.users[u] = true
 	c.broadcastCh <- newMessage(c.name, u.name, u.name+" has joined\n", text)
 }
@@ -98,23 +102,57 @@ func newHub(l *log.Logger) *hub {
 	}
 }
 
+func (h *hub) newUser(u *User) {
+	h.users[u.name] = u
+	h.channels[defaultChannelName].join(u)
+	go u.conn.read()
+}
+
+func (h *hub) joinChannel(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	if ch, ok := h.channels[m.channel]; ok {
+		ch.join(user)
+		return
+	}
+	user.conn.write("Sorry, the channel " + m.channel + " doesn't exist.\n")
+}
+
+func (h *hub) createChannel(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	ch, ok := h.channels[m.channel]
+	if ok {
+		ch.join(user)
+		return
+	}
+	newCh := newChannel(m.channel, h.users)
+	h.channels[m.channel] = newCh
+	newCh.join(user)
+}
+
 func (h *hub) run() {
 	h.channels[defaultChannelName] = newChannel(defaultChannelName, h.users)
 	for {
 		select {
 		case user := <-h.userCh:
-			h.users[user.name] = user
-			h.channels[defaultChannelName].join(user)
-			go user.conn.read()
+			// bug: if a user joins and then quits and re-joins with that same
+			// name, you get a write to closed error
+			h.newUser(user)
 
 		case message := <-h.messageCh:
+			h.logger.Printf("DEBUG: (%s to %s): %s", message.username, message.channel, message.text)
 			switch message.messageType {
 
 			case join:
-				// need to check for nil entries
-				h.channels[message.channel].users[h.users[message.username]] = true
+				h.joinChannel(message)
 
 			case create:
+				// need to check for already created -- if so, then join it
 				h.channels[message.channel] = newChannel(message.channel, h.users)
 				h.channels[message.channel].users[h.users[message.username]] = true
 

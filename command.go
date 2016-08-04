@@ -27,6 +27,7 @@ var commands = map[string]command{
 	"/help":    helpCmd,
 	"/join":    joinRoomCmd,
 	"/newroom": newRoomCmd,
+	"/rooms":   listRoomsCmd,
 }
 
 func helpCmd(_ *server, c client, _ string) {
@@ -43,7 +44,7 @@ func joinRoomCmd(s *server, c client, arg string) {
 		c:           c,
 	})
 	if err != nil {
-		c.write(err.Error())
+		c.write(err.Error() + "\n")
 		return
 	}
 	c.write("Joined room " + arg + ".\n")
@@ -60,4 +61,13 @@ func newRoomCmd(s *server, c client, arg string) {
 		return
 	}
 	c.write(("(chatbot): New room " + arg + " created successfully\n"))
+}
+
+func listRoomsCmd(s *server, c client, _ string) {
+	rooms := []string{}
+	for room := range s.rooms {
+		rooms = append(rooms, room)
+	}
+	msg := strings.Join(rooms, "\n  - ")
+	c.write("Rooms:\n  - " + msg + "\n")
 }

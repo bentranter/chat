@@ -2,22 +2,21 @@ package torbit
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
+
+type messageType int
 
 const (
 	defaultRoomName = "general"
-	chatHelp        = `(chatbot): Hello, welcome to the chat room
-Commands:
-  /help    see this help message again (example: /help)
-  /join    join a room                 (example: /join general)
-  /newroom create a new room           (example: /newroom random)
 
-`
+	join = messageType(iota)
+	leave
+	text
 )
 
 var (
@@ -27,8 +26,11 @@ var (
 )
 
 type message struct {
-	content  string
-	roomName string
+	channel     string
+	username    string
+	text        string
+	time        time.Time
+	messageType messageType
 }
 
 // needs to be a struct with a mutex since it's accessed by goroutines
@@ -36,7 +38,11 @@ type room map[string]client // client name -> client
 
 type roomChange struct {
 	newRoomName string
-	c           client
+	channel     string
+	user        *user
+	text        string
+	time        *time.Time
+	messageType messageType
 }
 
 // needs mutex
@@ -44,15 +50,27 @@ type server struct {
 	logger  *log.Logger
 	clients map[string]bool // only for keeping track usernames
 	rooms   map[string]room // room name -> room
-	join    chan client
-	recv    chan *message
-	leave   chan client
+
+	// hmm
+	clientNames map[string]bool
+	clientz     map[string]client
+	roomz       map[client]string
+
+	// channels
+	join  chan client
+	recv  chan *message
+	leave chan client
 }
 
 // @TODO: something needs to be done about this horrible mess
 func (s *server) newClient(c client) {
 	s.clients[c.getName()] = true             // client joins server, name is reserved
 	s.rooms[defaultRoomName][c.getName()] = c // jesus christ lol, client joins room
+
+	s.clientNames[c.getName()] = true
+	s.clientz[defaultRoomName] = c
+	s.roomz[c] = defaultRoomName
+
 	c.write(chatHelp)
 	welcomeMessage := &message{
 		content:  "(chatbot): New user " + c.getName() + " has joined.\n",
@@ -73,7 +91,6 @@ func (s *server) newRoom(name string) error {
 }
 
 func (s *server) changeRoom(r *roomChange) error {
-	fmt.Printf("Rooms: %#v\n", s.rooms)
 	if _, ok := s.rooms[strings.TrimSpace(r.newRoomName)]; !ok {
 		return errRoomDoesNotExist
 	}
@@ -83,7 +100,7 @@ func (s *server) changeRoom(r *roomChange) error {
 		return errAlreadyInRoom
 	}
 
-	delete(s.rooms[r.c.getRoom()], r.c.getName()) // remove from current room
+	delete(s.rooms[r.c.getRoom()], r.c.getName())
 	s.rooms[r.newRoomName][r.c.getName()] = r.c
 	r.c.setRoom(r.newRoomName)
 	return nil
@@ -158,9 +175,14 @@ func ServeTCP(l *log.Logger, port string) error {
 		logger:  l,
 		clients: make(map[string]bool),
 		rooms:   make(map[string]room),
-		join:    make(chan client),
-		recv:    make(chan *message),
-		leave:   make(chan client),
+
+		clientNames: make(map[string]bool),
+		clientz:     make(map[string]client),
+		roomz:       make(map[client]string),
+
+		join:  make(chan client),
+		recv:  make(chan *message),
+		leave: make(chan client),
 	}
 	err := s.newRoom(defaultRoomName)
 	if err != nil {

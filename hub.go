@@ -13,6 +13,7 @@ const (
 	defaultChannelName = "general"
 
 	join = messageType(iota)
+	create
 	leave
 	text
 	quit
@@ -58,7 +59,6 @@ func newChannel(channelName string, activeUsers map[string]*User) *channel {
 func (c *channel) join(u *User) {
 	c.users[u] = true
 	c.broadcastCh <- newMessage(c.name, u.name, u.name+" has joined\n", text)
-	go u.conn.read()
 }
 
 func (c *channel) leave(u *User) {
@@ -105,11 +105,17 @@ func (h *hub) run() {
 		case user := <-h.userCh:
 			h.users[user.name] = user
 			h.channels[defaultChannelName].join(user)
+			go user.conn.read()
 
 		case message := <-h.messageCh:
 			switch message.messageType {
 
 			case join:
+				// need to check for nil entries
+				h.channels[message.channel].users[h.users[message.username]] = true
+
+			case create:
+				h.channels[message.channel] = newChannel(message.channel, h.users)
 				h.channels[message.channel].users[h.users[message.username]] = true
 
 			case leave:
@@ -155,94 +161,3 @@ func ListenAndServe(l *log.Logger, port string) error {
 	h := newHub(l)
 	return h.serve(port)
 }
-
-// func (s *server) serve(port string) error {
-// 	// HTTP Server/Websocket server
-// 	go func() {
-// 		http.HandleFunc("/", homeHandler)
-// 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-// 			newWsClientHandler(s, w, r)
-// 		})
-// 		http.ListenAndServe(":8000", nil)
-// 	}()
-// }
-
-// // @TODO: This needs to be a template so the port/ip can be set!
-// const homeHTML = `<!DOCTYPE html>
-// <html>
-//   <head>
-//     <meta charset="utf-8"/>
-//     <title>Chat</title>
-//     <meta name="viewport" content="width=device-width,initial-scale=1"/>
-//     <link href="https://npmcdn.com/basscss@8.0.0/css/basscss.min.css" rel="stylesheet">
-//     <style>
-//       html, body { font-family: "Proxima Nova", Helvetica, Arial, sans-serif }
-//       .bg-blue { background-color: #07c }
-//       .white { color: #fff }
-//       .bold { font-weight: bold }
-//     </style>
-//   </head>
-
-//   <body class="p2">
-//     <h1 class="h1">Welcome to the chat room!</h1>
-//     <form id="form" class="flex">
-//       <input class="flex-auto px2 py1 bg-white border rounded" type="text" id="msg">
-//       <input class="px2 py1 bg-blue white bold border rounded" type="submit" value="Send">
-//     </form>
-//     <div class="my2" id="box"></div>
-//   <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
-//   <script>
-//   $(function() {
-
-//     var ws = new window.WebSocket("ws://" + document.domain + ":8000/ws");
-//     var $msg = $("#msg");
-//     var $box = $("#box");
-
-//     ws.onclose = function(e) {
-//       $box.append("<p class='bold'>Connection closed!</p>");
-//     };
-//     ws.onmessage = function(e) {
-//       $box.append("<p>"+e.data+"</p>");
-//       increaseUnreadCount();
-//     };
-
-//     ws.onerror = function(e) {
-//       $box.append("<strong>Error!</strong>")
-//     };
-
-//     $("#form").submit(function(e) {
-//       e.preventDefault();
-//       if (!ws) {
-//           return;
-//       }
-//       if (!$msg.val()) {
-//           return;
-//       }
-//       ws.send($msg.val());
-//       $msg.val("");
-//     });
-
-//     document.addEventListener("visibilitychange", resetUnreadCount);
-
-//     function increaseUnreadCount() {
-//       if (document.hidden === true) {
-//         var count = parseInt(document.title.match(/\d+/));
-//         if (!count) {
-//           document.title = "(1) Chat";
-//           return;
-//         }
-//         document.title = "("+(count+1)+") Chat";
-//       }
-//     }
-
-//     function resetUnreadCount() {
-//       if (document.hidden === false) {
-//         document.title = "Chat";
-//       }
-//     }
-
-//   });
-//   </script>
-//   </body>
-// </html>
-// `

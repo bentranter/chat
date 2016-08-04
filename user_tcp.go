@@ -8,14 +8,17 @@ import (
 
 const chatHelp = `(chatbot to you): Hello, welcome to the chat room
 Commands:
-  /help    see this help message again (example: /help)
-  /join    join a room                 (example: /join general)
+  /help    see this help message again   (example: /help)
+  /newroom create a new room and join it (example: /newroom random)
+  /join    join a room                   (example: /join general)
 `
 
 type command func(tc *tcpUser, arg string)
 
 var commands = map[string]command{
-	"/help": helpCmd,
+	"/help":    helpCmd,
+	"/newroom": newRoomCmd,
+	"/join":    joinRoomCmd,
 }
 
 type tcpUser struct {
@@ -89,10 +92,6 @@ func (tc *tcpUser) name() string {
 	return tc.username
 }
 
-func (tc *tcpUser) setCurrentRoom(roomName string) {
-	tc.currentRoomName = roomName
-}
-
 func (tc *tcpUser) handleCommand(s string) bool {
 	if !strings.HasPrefix(s, "/") {
 		return false
@@ -110,4 +109,16 @@ func (tc *tcpUser) handleCommand(s string) bool {
 
 func helpCmd(tc *tcpUser, _ string) {
 	tc.write(chatHelp)
+}
+
+func newRoomCmd(tc *tcpUser, arg string) {
+	tc.receiver <- newMessage(arg, tc.username, tc.username+" created new channel "+arg, create)
+	tc.currentRoomName = arg // risky
+	tc.write("Created and joined room " + arg + "\n")
+}
+
+func joinRoomCmd(tc *tcpUser, arg string) {
+	tc.receiver <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, join)
+	tc.currentRoomName = arg
+	tc.write("Joined room " + arg + "\n")
 }

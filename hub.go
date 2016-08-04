@@ -1,6 +1,7 @@
 package torbit
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"time"
@@ -40,6 +41,8 @@ func newChannel(channelName string) *channel {
 
 func (c *channel) join(u *User) {
 	c.users[u] = true
+	go c.broadcast()
+	go u.conn.read()
 }
 
 func (c *channel) leave(u *User) {
@@ -50,9 +53,9 @@ func (c *channel) broadcast() {
 	for {
 		msg := <-c.broadcastCh
 		for u := range c.users {
-			err := u.conn.write(msg.text)
+			err := u.conn.write(fmt.Sprintf("(%s to %s): %s", msg.username, msg.channel, msg.text))
 			if err != nil {
-				println("ERROR!: ", err)
+				println("ERROR!: ", err.Error())
 			}
 		}
 	}
@@ -82,7 +85,7 @@ func (h *hub) run() {
 		select {
 		case user := <-h.userCh:
 			h.users[user.name] = user
-			h.channels[defaultChannelName].users[user] = true
+			h.channels[defaultChannelName].join(user)
 
 		case message := <-h.messageCh:
 			switch message.messageType {
@@ -94,6 +97,7 @@ func (h *hub) run() {
 				delete(h.channels[message.channel].users, h.users[message.username])
 
 			case text:
+				h.logger.Printf("(%s to %s): %s", message.username, message.channel, message.text)
 				h.channels[message.channel].broadcastCh <- message
 
 				// need a quit case
@@ -110,12 +114,13 @@ func (h *hub) serve(port string) error {
 	h.logger.Println("Server started on", port)
 
 	go func() {
-		h.logger.Println("got conn")
-		conn, err := server.Accept()
-		if err != nil {
-			h.logger.Println(err.Error())
+		for {
+			conn, err := server.Accept()
+			if err != nil {
+				h.logger.Println(err.Error())
+			}
+			h.userCh <- createTCPUser(conn, h.messageCh)
 		}
-		h.userCh <- createTCPUser(conn, h.messageCh)
 	}()
 
 	// h.run() blocks forever

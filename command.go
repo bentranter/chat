@@ -1,73 +1,73 @@
 package torbit
 
-import (
-	"strings"
-)
+// import (
+// 	"strings"
+// )
 
-func handleCommand(s *server, c client, msg string) bool {
-	if !strings.HasPrefix(msg, "/") {
-		return false
-	}
+// func handleCommand(s *server, c client, msg string) bool {
+// 	if !strings.HasPrefix(msg, "/") {
+// 		return false
+// 	}
 
-	cmd := strings.TrimSpace(strings.Split(msg, " ")[0]) // get first arg
-	cmdFunc, ok := commands[cmd]
-	if !ok {
-		c.write("(chatbot): " + strings.TrimSpace(msg) + " isn't a command. Type /help to see available commands\n")
-		return true // command doesn't exist, but it's valid command syntax
-	}
+// 	cmd := strings.TrimSpace(strings.Split(msg, " ")[0]) // get first arg
+// 	cmdFunc, ok := commands[cmd]
+// 	if !ok {
+// 		c.write("(chatbot): " + strings.TrimSpace(msg) + " isn't a command. Type /help to see available commands\n")
+// 		return true // command doesn't exist, but it's valid command syntax
+// 	}
 
-	cmdArg := strings.TrimSpace(strings.TrimPrefix(msg, cmd))
-	cmdFunc(s, c, cmdArg)
-	return true
-}
+// 	cmdArg := strings.TrimSpace(strings.TrimPrefix(msg, cmd))
+// 	cmdFunc(s, c, cmdArg)
+// 	return true
+// }
 
-type command func(s *server, c client, arg string)
+// type command func(s *server, c client, arg string)
 
-var commands = map[string]command{
-	"/help":    helpCmd,
-	"/join":    joinRoomCmd,
-	"/newroom": newRoomCmd,
-	"/rooms":   listRoomsCmd,
-}
+// var commands = map[string]command{
+// 	"/help":    helpCmd,
+// 	"/join":    joinRoomCmd,
+// 	"/newroom": newRoomCmd,
+// 	"/rooms":   listRoomsCmd,
+// }
 
-func helpCmd(_ *server, c client, _ string) {
-	c.write(chatHelp)
-}
+// func helpCmd(_ *server, c client, _ string) {
+// 	c.write(chatHelp)
+// }
 
-func joinRoomCmd(s *server, c client, arg string) {
-	if arg == "" {
-		c.write("Room name cannot be empty\n")
-		return
-	}
-	err := s.changeRoom(&roomChange{
-		newRoomName: arg,
-		c:           c,
-	})
-	if err != nil {
-		c.write(err.Error() + "\n")
-		return
-	}
-	c.write("Joined room " + arg + ".\n")
-}
+// func joinRoomCmd(s *server, c client, arg string) {
+// 	if arg == "" {
+// 		c.write("Room name cannot be empty\n")
+// 		return
+// 	}
+// 	err := s.changeRoom(&roomChange{
+// 		newRoomName: arg,
+// 		c:           c,
+// 	})
+// 	if err != nil {
+// 		c.write(err.Error() + "\n")
+// 		return
+// 	}
+// 	c.write("Joined room " + arg + ".\n")
+// }
 
-func newRoomCmd(s *server, c client, arg string) {
-	if arg == "" {
-		c.write("New room name cannot be empty\n")
-		return
-	}
-	err := s.newRoom(arg)
-	if err != nil {
-		c.write(err.Error())
-		return
-	}
-	c.write(("(chatbot): New room " + arg + " created successfully\n"))
-}
+// func newRoomCmd(s *server, c client, arg string) {
+// 	if arg == "" {
+// 		c.write("New room name cannot be empty\n")
+// 		return
+// 	}
+// 	err := s.newRoom(arg)
+// 	if err != nil {
+// 		c.write(err.Error())
+// 		return
+// 	}
+// 	c.write(("(chatbot): New room " + arg + " created successfully\n"))
+// }
 
-func listRoomsCmd(s *server, c client, _ string) {
-	rooms := []string{}
-	for room := range s.rooms {
-		rooms = append(rooms, room)
-	}
-	msg := strings.Join(rooms, "\n  - ")
-	c.write("Rooms:\n  - " + msg + "\n")
-}
+// func listRoomsCmd(s *server, c client, _ string) {
+// 	rooms := []string{}
+// 	for room := range s.rooms {
+// 		rooms = append(rooms, room)
+// 	}
+// 	msg := strings.Join(rooms, "\n  - ")
+// 	c.write("Rooms:\n  - " + msg + "\n")
+// }

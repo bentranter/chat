@@ -26,12 +26,3 @@ func createTCPUser(conn net.Conn, receiver chan *message) *User {
 }
 
 // func createWSUser() {}
-
-type client interface {
-	getName() string
-	getRoom() string
-	setRoom(room string)
-	read()
-	write(msg string) error
-	close()
-}

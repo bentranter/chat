@@ -9,5 +9,5 @@ var logger = torbit.GetLogger(config.LogFilename)
 
 func main() {
 	logger := torbit.GetLogger(config.LogFilename)
-	logger.Fatalln(torbit.ServeTCP(logger, ":"+config.TCPPortAddr))
+	logger.Fatalln(torbit.ListenAndServe(logger, ":"+config.TCPPortAddr))
 }

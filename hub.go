@@ -1,28 +1,19 @@
 package torbit
 
 import (
-	"errors"
 	"log"
 	"net"
-	"net/http"
-	"strings"
 	"time"
 )
 
 type messageType int
 
 const (
-	defaultRoomName = "general"
+	defaultChannelName = "general"
 
 	join = messageType(iota)
 	leave
 	text
-)
-
-var (
-	errAlreadyInRoom    = errors.New("You're already in that room")
-	errRoomDoesNotExist = errors.New("Room doesn't exist")
-	errRoomExists       = errors.New("Room already exists")
 )
 
 type message struct {
@@ -33,240 +24,197 @@ type message struct {
 	messageType messageType
 }
 
-// needs to be a struct with a mutex since it's accessed by goroutines
-type room map[string]client // client name -> client
-
-type roomChange struct {
-	newRoomName string
-	channel     string
-	user        *user
-	text        string
-	time        *time.Time
-	messageType messageType
+type channel struct {
+	name        string
+	users       map[*User]bool
+	broadcastCh chan *message
 }
 
-// needs mutex
-type server struct {
-	logger  *log.Logger
-	clients map[string]bool // only for keeping track usernames
-	rooms   map[string]room // room name -> room
-
-	// hmm
-	clientNames map[string]bool
-	clientz     map[string]client
-	roomz       map[client]string
-
-	// channels
-	join  chan client
-	recv  chan *message
-	leave chan client
-}
-
-// @TODO: something needs to be done about this horrible mess
-func (s *server) newClient(c client) {
-	s.clients[c.getName()] = true             // client joins server, name is reserved
-	s.rooms[defaultRoomName][c.getName()] = c // jesus christ lol, client joins room
-
-	s.clientNames[c.getName()] = true
-	s.clientz[defaultRoomName] = c
-	s.roomz[c] = defaultRoomName
-
-	c.write(chatHelp)
-	welcomeMessage := &message{
-		content:  "(chatbot): New user " + c.getName() + " has joined.\n",
-		roomName: defaultRoomName,
+func newChannel(channelName string) *channel {
+	return &channel{
+		name:        channelName,
+		users:       make(map[*User]bool),
+		broadcastCh: make(chan *message),
 	}
-	s.broadcast(welcomeMessage)
-	go c.read()
 }
 
-// newRoom creates a new room with the given name, and adds that room to the
-// list of room maintained by the server.
-func (s *server) newRoom(name string) error {
-	if _, ok := s.rooms[name]; ok {
-		return errRoomExists
-	}
-	s.rooms[name] = make(room)
-	return nil
+func (c *channel) join(u *User) {
+	c.users[u] = true
 }
 
-func (s *server) changeRoom(r *roomChange) error {
-	if _, ok := s.rooms[strings.TrimSpace(r.newRoomName)]; !ok {
-		return errRoomDoesNotExist
-	}
-
-	// join the other room
-	if _, ok := s.rooms[r.newRoomName][r.c.getName()]; ok {
-		return errAlreadyInRoom
-	}
-
-	delete(s.rooms[r.c.getRoom()], r.c.getName())
-	s.rooms[r.newRoomName][r.c.getName()] = r.c
-	r.c.setRoom(r.newRoomName)
-	return nil
+func (c *channel) leave(u *User) {
+	delete(c.users, u)
 }
 
-func (s *server) serve(port string) error {
+func (c *channel) broadcast() {
+	for {
+		msg := <-c.broadcastCh
+		for u := range c.users {
+			err := u.conn.write(msg.text)
+			if err != nil {
+				println("ERROR!: ", err)
+			}
+		}
+	}
+}
+
+type hub struct {
+	logger    *log.Logger
+	channels  map[string]*channel
+	users     map[string]*User
+	userCh    chan *User
+	messageCh chan *message
+}
+
+func newHub(l *log.Logger) *hub {
+	return &hub{
+		logger:    l,
+		channels:  make(map[string]*channel),
+		users:     make(map[string]*User),
+		userCh:    make(chan *User),
+		messageCh: make(chan *message),
+	}
+}
+
+func (h *hub) run() {
+	h.channels[defaultChannelName] = newChannel(defaultChannelName)
+	for {
+		select {
+		case user := <-h.userCh:
+			h.users[user.name] = user
+			h.channels[defaultChannelName].users[user] = true
+
+		case message := <-h.messageCh:
+			switch message.messageType {
+
+			case join:
+				h.channels[message.channel].users[h.users[message.username]] = true
+
+			case leave:
+				delete(h.channels[message.channel].users, h.users[message.username])
+
+			case text:
+				h.channels[message.channel].broadcastCh <- message
+
+				// need a quit case
+			}
+		}
+	}
+}
+
+func (h *hub) serve(port string) error {
 	server, err := net.Listen("tcp", port)
 	if err != nil {
 		return err
 	}
-	s.logger.Println("Server started on ", port)
+	h.logger.Println("Server started on", port)
 
-	// TCP Server
 	go func() {
-		for {
-			conn, err := server.Accept()
-			if err != nil {
-				s.logger.Println(err.Error())
-			}
-			s.join <- newTCPClient(conn, s)
-		}
-	}()
-
-	// HTTP Server/Websocket server
-	go func() {
-		http.HandleFunc("/", homeHandler)
-		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-			newWsClientHandler(s, w, r)
-		})
-		http.ListenAndServe(":8000", nil)
-	}()
-
-	for {
-		select {
-		case client := <-s.join:
-			s.newClient(client)
-
-		case msg := <-s.recv:
-			s.logger.Print("Message received: ", msg.content)
-			s.broadcast(msg)
-
-		case c := <-s.leave:
-			s.logger.Printf("Disconnected user %s\n", c.getName())
-			s.broadcast(&message{
-				content:  fmt.Sprintf("(chatbot): user %s left the chat\n", c.getName()),
-				roomName: c.getRoom(),
-			})
-			delete(s.clients, c.getName())
-			delete(s.rooms[c.getRoom()], c.getName()) // jesus christ
-			c.close()
-		}
-	}
-}
-
-// broadcast writes a message to the given room
-func (s *server) broadcast(m *message) {
-	room, ok := s.rooms[m.roomName]
-	if !ok {
-		return
-		// room doesn't exist so idk exactly what to do - maybe err?
-	}
-	for _, c := range room {
-		err := c.write(m.content)
+		h.logger.Println("got conn")
+		conn, err := server.Accept()
 		if err != nil {
-			s.logger.Println("Broadcast error: ", err.Error())
+			h.logger.Println(err.Error())
 		}
-	}
+		h.userCh <- createTCPUser(conn, h.messageCh)
+	}()
+
+	// h.run() blocks forever
+	h.run()
+	return nil
 }
 
-func ServeTCP(l *log.Logger, port string) error {
-	s := &server{
-		logger:  l,
-		clients: make(map[string]bool),
-		rooms:   make(map[string]room),
+// func (s *server) serve(port string) error {
+// 	// HTTP Server/Websocket server
+// 	go func() {
+// 		http.HandleFunc("/", homeHandler)
+// 		http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+// 			newWsClientHandler(s, w, r)
+// 		})
+// 		http.ListenAndServe(":8000", nil)
+// 	}()
+// }
 
-		clientNames: make(map[string]bool),
-		clientz:     make(map[string]client),
-		roomz:       make(map[client]string),
-
-		join:  make(chan client),
-		recv:  make(chan *message),
-		leave: make(chan client),
-	}
-	err := s.newRoom(defaultRoomName)
-	if err != nil {
-		return err
-	}
-	return s.serve(port)
+func ListenAndServe(l *log.Logger, port string) error {
+	h := newHub(l)
+	return h.serve(port)
 }
 
-// @TODO: This needs to be a template so the port/ip can be set!
-const homeHTML = `<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8"/>
-    <title>Chat</title>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <link href="https://npmcdn.com/basscss@8.0.0/css/basscss.min.css" rel="stylesheet">
-    <style>
-      html, body { font-family: "Proxima Nova", Helvetica, Arial, sans-serif }
-      .bg-blue { background-color: #07c }
-      .white { color: #fff }
-      .bold { font-weight: bold }
-    </style>
-  </head>
+// // @TODO: This needs to be a template so the port/ip can be set!
+// const homeHTML = `<!DOCTYPE html>
+// <html>
+//   <head>
+//     <meta charset="utf-8"/>
+//     <title>Chat</title>
+//     <meta name="viewport" content="width=device-width,initial-scale=1"/>
+//     <link href="https://npmcdn.com/basscss@8.0.0/css/basscss.min.css" rel="stylesheet">
+//     <style>
+//       html, body { font-family: "Proxima Nova", Helvetica, Arial, sans-serif }
+//       .bg-blue { background-color: #07c }
+//       .white { color: #fff }
+//       .bold { font-weight: bold }
+//     </style>
+//   </head>
 
-  <body class="p2">
-    <h1 class="h1">Welcome to the chat room!</h1>
-    <form id="form" class="flex">
-      <input class="flex-auto px2 py1 bg-white border rounded" type="text" id="msg">
-      <input class="px2 py1 bg-blue white bold border rounded" type="submit" value="Send">
-    </form>
-    <div class="my2" id="box"></div>
-  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
-  <script>
-  $(function() {
+//   <body class="p2">
+//     <h1 class="h1">Welcome to the chat room!</h1>
+//     <form id="form" class="flex">
+//       <input class="flex-auto px2 py1 bg-white border rounded" type="text" id="msg">
+//       <input class="px2 py1 bg-blue white bold border rounded" type="submit" value="Send">
+//     </form>
+//     <div class="my2" id="box"></div>
+//   <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+//   <script>
+//   $(function() {
 
-    var ws = new window.WebSocket("ws://" + document.domain + ":8000/ws");
-    var $msg = $("#msg");
-    var $box = $("#box");
+//     var ws = new window.WebSocket("ws://" + document.domain + ":8000/ws");
+//     var $msg = $("#msg");
+//     var $box = $("#box");
 
-    ws.onclose = function(e) {
-      $box.append("<p class='bold'>Connection closed!</p>");
-    };
-    ws.onmessage = function(e) {
-      $box.append("<p>"+e.data+"</p>");
-      increaseUnreadCount();
-    };
+//     ws.onclose = function(e) {
+//       $box.append("<p class='bold'>Connection closed!</p>");
+//     };
+//     ws.onmessage = function(e) {
+//       $box.append("<p>"+e.data+"</p>");
+//       increaseUnreadCount();
+//     };
 
-    ws.onerror = function(e) {
-      $box.append("<strong>Error!</strong>")
-    };
+//     ws.onerror = function(e) {
+//       $box.append("<strong>Error!</strong>")
+//     };
 
-    $("#form").submit(function(e) {
-      e.preventDefault();
-      if (!ws) {
-          return;
-      }
-      if (!$msg.val()) {
-          return;
-      }
-      ws.send($msg.val());
-      $msg.val("");
-    });
+//     $("#form").submit(function(e) {
+//       e.preventDefault();
+//       if (!ws) {
+//           return;
+//       }
+//       if (!$msg.val()) {
+//           return;
+//       }
+//       ws.send($msg.val());
+//       $msg.val("");
+//     });
 
-    document.addEventListener("visibilitychange", resetUnreadCount);
+//     document.addEventListener("visibilitychange", resetUnreadCount);
 
-    function increaseUnreadCount() {
-      if (document.hidden === true) {
-        var count = parseInt(document.title.match(/\d+/));
-        if (!count) {
-          document.title = "(1) Chat";
-          return;
-        }
-        document.title = "("+(count+1)+") Chat";
-      }
-    }
+//     function increaseUnreadCount() {
+//       if (document.hidden === true) {
+//         var count = parseInt(document.title.match(/\d+/));
+//         if (!count) {
+//           document.title = "(1) Chat";
+//           return;
+//         }
+//         document.title = "("+(count+1)+") Chat";
+//       }
+//     }
 
-    function resetUnreadCount() {
-      if (document.hidden === false) {
-        document.title = "Chat";
-      }
-    }
+//     function resetUnreadCount() {
+//       if (document.hidden === false) {
+//         document.title = "Chat";
+//       }
+//     }
 
-  });
-  </script>
-  </body>
-</html>
-`
+//   });
+//   </script>
+//   </body>
+// </html>
+// `

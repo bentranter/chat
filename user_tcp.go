@@ -10,7 +10,9 @@ const chatHelp = `(chatbot to you): Hello, welcome to the chat room
 Commands:
   /help    see this help message again   (example: /help)
   /newroom create a new room and join it (example: /newroom random)
-  /join    join a room                   (example: /join general)
+  /join    join a room                   (example: /join random)
+  /leave   leave a room                  (example: /leave random)
+  /quit    disconnect from the server    (exmaple: /quit)
 `
 
 type command func(tc *tcpUser, arg string)
@@ -19,6 +21,7 @@ var commands = map[string]command{
 	"/help":    helpCmd,
 	"/newroom": newRoomCmd,
 	"/join":    joinRoomCmd,
+	"/leave":   leaveRoomCmd,
 }
 
 type tcpUser struct {
@@ -82,6 +85,9 @@ func (tc *tcpUser) write(message *message) error {
 	case join, create:
 		tc.currentRoomName = message.channel
 		return tc.writeText(message.text)
+	case leave:
+		tc.currentRoomName = defaultChannelName
+		return tc.writeText(message.text)
 	}
 	return nil
 }
@@ -122,6 +128,10 @@ func helpCmd(tc *tcpUser, _ string) {
 }
 
 func newRoomCmd(tc *tcpUser, arg string) {
+	if strings.TrimSpace(arg) == "" {
+		tc.write(newMessage("you", "server", "Room name cannot be blank\n", text))
+		return
+	}
 	if arg == tc.currentRoomName {
 		tc.write(newMessage("you", "server", "You're already in that room\n", text))
 		return
@@ -130,9 +140,20 @@ func newRoomCmd(tc *tcpUser, arg string) {
 }
 
 func joinRoomCmd(tc *tcpUser, arg string) {
+	if strings.TrimSpace(arg) == "" {
+		tc.write(newMessage("you", "server", "Room name cannot be blank\n", text))
+		return
+	}
 	if arg == tc.currentRoomName {
 		tc.write(newMessage("you", "server", "You're already in that room\n", text))
 		return
 	}
 	tc.send <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, join)
+}
+
+func leaveRoomCmd(tc *tcpUser, arg string) {
+	if strings.TrimSpace(arg) == "" {
+		tc.write(newMessage("you", "server", "Room name cannot be blank\n", text))
+	}
+	tc.send <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, leave)
 }

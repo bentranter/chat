@@ -42,18 +42,12 @@ type channel struct {
 	activeUsers map[string]*User
 }
 
-func newChannel(channelName string, activeUsers map[string]*User, createdBy string) *channel {
-	ch := &channel{
+func newChannel(channelName string, activeUsers map[string]*User) *channel {
+	return &channel{
 		name:        channelName,
 		users:       make(map[*User]bool),
-		activeUsers: make(map[string]*User),
+		activeUsers: activeUsers,
 	}
-	ch.activeUsers = activeUsers
-	if createdBy != "" {
-		user := ch.activeUsers[createdBy]
-		ch.users[user] = true
-	}
-	return ch
 }
 
 func (c *channel) join(u *User) {
@@ -62,20 +56,19 @@ func (c *channel) join(u *User) {
 		return
 	}
 	c.users[u] = true
-	c.broadcast(newMessage(c.name, u.name, u.name+" has joined "+c.name+"\n", text))
+	c.broadcast(newMessage(c.name, u.name, u.name+" has joined "+c.name+"\n", join))
 }
 
 func (c *channel) leave(u *User) {
 	delete(c.users, u)
 }
 
-// may need goroutine for range statement
+// guess you could use go statement to this all at once but me no know
 func (c *channel) broadcast(m *message) {
 	for u := range c.users {
 		if _, ok := c.activeUsers[u.name]; !ok {
 			continue
 		}
-
 		err := u.conn.write(m)
 		if err != nil {
 			println("Broadcast error: ", err.Error())
@@ -121,6 +114,35 @@ func (h *hub) joinChannel(m *message) {
 	user.conn.write(m)
 }
 
+func (h *hub) leaveChannel(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	if m.channel == defaultChannelName {
+		m.text = "You can't leave the default channel (which is " + defaultChannelName + ").\n"
+		m.messageType = text
+		user.conn.write(m)
+		return
+	}
+	ch, ok := h.channels[m.channel]
+	if !ok {
+		m.text = "The channel " + m.channel + " doesn't exist, so you can't leave it.\n"
+		m.messageType = text
+		user.conn.write(m)
+		return
+	}
+	if _, ok = ch.users[user]; !ok {
+		m.text = "You're not a member of the channel " + m.channel + ".\n"
+		m.messageType = text
+		user.conn.write(m)
+		return
+	}
+	delete(ch.users, user)
+	m.text = "Left channel " + m.channel + ". Returning you to the general channel.\n"
+	user.conn.write(m)
+}
+
 // somehow doesn't atually join
 func (h *hub) createChannel(m *message) {
 	user, ok := h.users[m.username]
@@ -132,13 +154,13 @@ func (h *hub) createChannel(m *message) {
 		ch.join(user)
 		return
 	}
-	newCh := newChannel(m.channel, h.users, user.name)
+	newCh := newChannel(m.channel, h.users)
 	h.channels[m.channel] = newCh
 	newCh.join(user)
 }
 
 func (h *hub) run() {
-	h.channels[defaultChannelName] = newChannel(defaultChannelName, h.users, "")
+	h.channels[defaultChannelName] = newChannel(defaultChannelName, h.users)
 	for {
 		select {
 		case user := <-h.userCh:
@@ -156,7 +178,7 @@ func (h *hub) run() {
 				h.createChannel(message)
 
 			case leave:
-				delete(h.channels[message.channel].users, h.users[message.username])
+				h.leaveChannel(message)
 
 			case text:
 				h.logger.Printf("(%s to %s): %s", message.username, message.channel, message.text)

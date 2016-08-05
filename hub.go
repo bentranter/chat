@@ -3,6 +3,7 @@ package torbit
 import (
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -12,6 +13,8 @@ const (
 	defaultChannelName = "general"
 
 	join = messageType(iota)
+	listUsers
+	listChannels
 	create
 	leave
 	text
@@ -103,6 +106,43 @@ func (h *hub) newUser(u *User) {
 	go u.conn.read()
 }
 
+func (h *hub) listUsers(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	var users []string
+	if m.channel != "" {
+		ch, ok := h.channels[m.channel]
+		if !ok {
+			user.conn.write(newMessage("you", "server", "Channel "+m.channel+" doesn't exist.\n", text))
+			return
+		}
+		for u := range ch.users {
+			users = append(users, u.name)
+		}
+	} else {
+		for user := range h.users {
+			users = append(users, user)
+		}
+	}
+	m.text = strings.Join(users, ",")
+	user.conn.write(m)
+}
+
+func (h *hub) listChannels(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	var chans []string
+	for ch := range h.channels {
+		chans = append(chans, ch)
+	}
+	m.text = strings.Join(chans, ",")
+	user.conn.write(m)
+}
+
 func (h *hub) joinChannel(m *message) {
 	user, ok := h.users[m.username]
 	if !ok {
@@ -141,7 +181,7 @@ func (h *hub) leaveChannel(m *message) {
 		user.conn.write(m)
 		return
 	}
-	delete(ch.users, user)
+	ch.leave(user)
 	m.text = "Left channel " + m.channel + ". Returning you to the general channel.\n"
 	user.conn.write(m)
 }
@@ -241,6 +281,12 @@ func (h *hub) run() {
 			case join:
 				h.joinChannel(message)
 
+			case listUsers:
+				h.listUsers(message)
+
+			case listChannels:
+				h.listChannels(message)
+
 			case create:
 				h.createChannel(message)
 
@@ -279,6 +325,7 @@ func (h *hub) serve(port string) error {
 			if err != nil {
 				h.logger.Println(err.Error())
 			}
+			// data race here, createTCPUser needs to be run in a goroutine
 			newUser := createTCPUser(conn, h)
 			h.userCh <- newUser
 		}

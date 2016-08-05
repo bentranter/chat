@@ -6,29 +6,33 @@ import (
 	"strings"
 )
 
-const chatHelp = `(chatbot to you): Hello, welcome to the chat room
+const chatHelp = `Hello, welcome to the chat server!
 Commands:
-  /help    see this help message again   (example: /help)
-  /newroom create a new room and join it (example: /newroom random)
-  /join    join a room                   (example: /join random)
-  /leave   leave a room                  (example: /leave random)
-  /mute    mute a user                   (example: /mute rob)
-  /unmute  unmute a user                 (example: /unmute rob)
-  /mutes   see who you've muted          (example: /mutes)
-  /dm      send a message to a user      (example: /dm rob: hello!)
+  /help       see this help message again    (example: /help)
+  /listusers  see all users connected        (example: /listusers)
+  /listrooms  see all channels               (example: /listrooms)
+  /newroom    create a new room and join it  (example: /newroom random)
+  /join       join a room                    (example: /join random)
+  /leave      leave a room                   (example: /leave random)
+  /mute       mute a user                    (example: /mute rob)
+  /unmute     unmute a user                  (example: /unmute rob)
+  /mutes      see who you've muted           (example: /mutes)
+  /dm         send a message to a user       (example: /dm rob: hello!)
 `
 
 type command func(tc *tcpUser, arg string)
 
 var commands = map[string]command{
-	"/help":    helpCmd,
-	"/newroom": newRoomCmd,
-	"/join":    joinRoomCmd,
-	"/leave":   leaveRoomCmd,
-	"/mute":    muteCmd,
-	"/unmute":  unmuteCmd,
-	"/mutes":   mutesCmd,
-	"/dm":      dmCmd,
+	"/help":      helpCmd,
+	"/listusers": listUsersCmd,
+	"/listrooms": listRoomsCmd,
+	"/newroom":   newRoomCmd,
+	"/join":      joinRoomCmd,
+	"/leave":     leaveRoomCmd,
+	"/mute":      muteCmd,
+	"/unmute":    unmuteCmd,
+	"/mutes":     mutesCmd,
+	"/dm":        dmCmd,
 }
 
 type tcpUser struct {
@@ -94,6 +98,9 @@ func (tc *tcpUser) write(message *message) error {
 	switch message.messageType {
 	case text:
 		return tc.writeText("(" + message.username + " to " + message.channel + "): " + message.text)
+
+	case listUsers, listChannels:
+		return tc.writeText(message.text + "\n")
 
 	case join, create:
 		tc.currentRoomName = message.channel
@@ -258,4 +265,16 @@ func dmCmd(tc *tcpUser, arg string) {
 		return
 	}
 	tc.send <- (newMessage(user, tc.username, msg, dm))
+}
+
+func listUsersCmd(tc *tcpUser, arg string) {
+	if arg != "" {
+		tc.send <- newMessage(arg, tc.username, "", listUsers)
+		return
+	}
+	tc.send <- newMessage("", tc.username, "", listUsers)
+}
+
+func listRoomsCmd(tc *tcpUser, _ string) {
+	tc.send <- newMessage("", tc.username, "", listChannels)
 }

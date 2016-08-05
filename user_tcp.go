@@ -12,7 +12,10 @@ Commands:
   /newroom create a new room and join it (example: /newroom random)
   /join    join a room                   (example: /join random)
   /leave   leave a room                  (example: /leave random)
-  /quit    disconnect from the server    (exmaple: /quit)
+  /mute    mute a user                   (example: /mute rob)
+  /unmute  unmute a user                 (example: /unmute rob)
+  /mutes   see who you've muted          (example: /mutes)
+  @<user>  send a message to a user      (example: @rob hello!)
 `
 
 type command func(tc *tcpUser, arg string)
@@ -22,10 +25,14 @@ var commands = map[string]command{
 	"/newroom": newRoomCmd,
 	"/join":    joinRoomCmd,
 	"/leave":   leaveRoomCmd,
+	"/mute":    muteCmd,
+	"/unmute":  unmuteCmd,
+	"/mutes":   mutesCmd,
 }
 
 type tcpUser struct {
 	currentRoomName string
+	muted           map[string]bool
 	username        string
 	r               *bufio.Reader
 	conn            net.Conn
@@ -56,6 +63,7 @@ func newTCPUser(conn net.Conn, h *hub) *tcpUser {
 
 	return &tcpUser{
 		currentRoomName: defaultChannelName,
+		muted:           make(map[string]bool),
 		username:        name,
 		r:               bufio.NewReader(conn),
 		conn:            conn,
@@ -78,6 +86,9 @@ func (tc *tcpUser) read() error {
 }
 
 func (tc *tcpUser) write(message *message) error {
+	if _, ok := tc.muted[message.username]; ok {
+		return nil
+	}
 	switch message.messageType {
 	case text:
 		return tc.writeText("(" + message.username + " to " + message.channel + "): " + message.text)
@@ -85,9 +96,26 @@ func (tc *tcpUser) write(message *message) error {
 	case join, create:
 		tc.currentRoomName = message.channel
 		return tc.writeText(message.text)
+
 	case leave:
 		tc.currentRoomName = defaultChannelName
 		return tc.writeText(message.text)
+
+	case mute:
+		if _, ok := tc.muted[message.channel]; !ok {
+			tc.muted[message.channel] = true
+			return tc.writeText(message.text)
+		}
+		return tc.writeText("User " + message.channel + " is already muted.\n")
+
+	case unmute:
+		if _, ok := tc.muted[message.channel]; ok {
+			delete(tc.muted, message.channel)
+			return tc.writeText(message.text)
+		}
+		return tc.writeText("User " + message.channel + " isn't muted.\n")
+
+	case dm:
 	}
 	return nil
 }
@@ -128,7 +156,8 @@ func helpCmd(tc *tcpUser, _ string) {
 }
 
 func newRoomCmd(tc *tcpUser, arg string) {
-	if strings.TrimSpace(arg) == "" {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
 		tc.write(newMessage("you", "server", "Room name cannot be blank\n", text))
 		return
 	}
@@ -140,7 +169,8 @@ func newRoomCmd(tc *tcpUser, arg string) {
 }
 
 func joinRoomCmd(tc *tcpUser, arg string) {
-	if strings.TrimSpace(arg) == "" {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
 		tc.write(newMessage("you", "server", "Room name cannot be blank\n", text))
 		return
 	}
@@ -152,8 +182,45 @@ func joinRoomCmd(tc *tcpUser, arg string) {
 }
 
 func leaveRoomCmd(tc *tcpUser, arg string) {
-	if strings.TrimSpace(arg) == "" {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
 		tc.write(newMessage("you", "server", "Room name cannot be blank\n", text))
 	}
 	tc.send <- newMessage(arg, tc.username, tc.username+" joined channel "+arg, leave)
+}
+
+func muteCmd(tc *tcpUser, arg string) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		tc.writeText("Username cannot be blank\n")
+		return
+	}
+	if arg == tc.username {
+		tc.writeText("You can't mute yourself\n")
+		return
+	}
+
+	tc.send <- newMessage(arg, tc.username, "Muted user "+arg+".\n", mute)
+}
+
+func unmuteCmd(tc *tcpUser, arg string) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		tc.writeText("Username cannot be blank\n")
+		return
+	}
+	tc.send <- newMessage(arg, tc.username, "Unmuted user "+arg+".\n", unmute)
+}
+
+func mutesCmd(tc *tcpUser, _ string) {
+	if len(tc.muted) < 1 {
+		tc.writeText("You haven't muted anyone.\n")
+		return
+	}
+	var mutes []string
+	for mute := range tc.muted {
+		mutes = append(mutes, mute)
+	}
+	muteList := strings.Join(mutes, "\n  - ")
+	tc.writeText("You've muted:\n  - " + muteList + "\n")
 }

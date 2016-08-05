@@ -15,6 +15,9 @@ const (
 	create
 	leave
 	text
+	mute
+	unmute
+	dm
 	quit
 )
 
@@ -63,7 +66,6 @@ func (c *channel) leave(u *User) {
 	delete(c.users, u)
 }
 
-// guess you could use go statement to this all at once but me no know
 func (c *channel) broadcast(m *message) {
 	for u := range c.users {
 		if _, ok := c.activeUsers[u.name]; !ok {
@@ -71,6 +73,7 @@ func (c *channel) broadcast(m *message) {
 		}
 		err := u.conn.write(m)
 		if err != nil {
+			// handle this didderefent
 			println("Broadcast error: ", err.Error())
 		}
 	}
@@ -143,7 +146,6 @@ func (h *hub) leaveChannel(m *message) {
 	user.conn.write(m)
 }
 
-// somehow doesn't atually join
 func (h *hub) createChannel(m *message) {
 	user, ok := h.users[m.username]
 	if !ok {
@@ -157,6 +159,69 @@ func (h *hub) createChannel(m *message) {
 	newCh := newChannel(m.channel, h.users)
 	h.channels[m.channel] = newCh
 	newCh.join(user)
+}
+
+func (h *hub) broadcast(m *message) {
+	h.logger.Printf("(%s to %s): %s", m.username, m.channel, m.text)
+	ch, ok := h.channels[m.channel]
+	if !ok {
+		return
+	}
+	ch.broadcast(m)
+}
+
+func (h *hub) mute(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	if _, ok := h.users[m.channel]; !ok {
+		m.messageType = text
+		m.text = "The user " + m.channel + " doesn't exist.\n"
+		user.conn.write(m)
+		return
+	}
+	user.conn.write(m)
+}
+
+func (h *hub) unmute(m *message) {
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	if _, ok := h.users[m.channel]; !ok {
+		m.messageType = text
+		m.text = "The user " + m.channel + " doesn't exist.\n"
+		user.conn.write(m)
+		return
+	}
+	user.conn.write(m)
+}
+
+func (h *hub) dm(m *message) {
+	sender, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	recipient, ok := h.users[m.channel]
+	if !ok {
+		m.messageType = text
+		m.text = "Sorry, the user " + m.channel + " doesn't exist.\n"
+		sender.conn.write(m)
+		return
+	}
+	recipient.conn.write(m)
+}
+
+func (h *hub) quit(m *message) {
+	h.logger.Printf("(%s to %s): %s", m.username, m.channel, m.text)
+	user, ok := h.users[m.username]
+	if !ok {
+		return
+	}
+	user.conn.close()
+	delete(h.users, m.username)
+	h.channels[defaultChannelName].broadcast(m)
 }
 
 func (h *hub) run() {
@@ -181,15 +246,19 @@ func (h *hub) run() {
 				h.leaveChannel(message)
 
 			case text:
-				h.logger.Printf("(%s to %s): %s", message.username, message.channel, message.text)
-				h.channels[message.channel].broadcast(message)
+				h.broadcast(message)
+
+			case mute:
+				h.mute(message)
+
+			case unmute:
+				h.unmute(message)
+
+			case dm:
+				h.dm(message)
 
 			case quit:
-				h.logger.Printf("%s", message.text)
-				h.users[message.username].conn.close()
-				delete(h.users, message.username)
-				// broadcast to all connected users
-				h.channels[defaultChannelName].broadcast(message)
+				h.quit(message)
 			}
 		}
 	}

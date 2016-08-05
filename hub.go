@@ -199,6 +199,7 @@ func (h *hub) unmute(m *message) {
 }
 
 func (h *hub) dm(m *message) {
+	h.logger.Printf("(%s to %s): %s", m.username, m.channel, m.text)
 	sender, ok := h.users[m.username]
 	if !ok {
 		return
@@ -211,6 +212,7 @@ func (h *hub) dm(m *message) {
 		return
 	}
 	recipient.conn.write(m)
+	sender.conn.write(m)
 }
 
 func (h *hub) quit(m *message) {

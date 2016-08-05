@@ -15,7 +15,7 @@ Commands:
   /mute    mute a user                   (example: /mute rob)
   /unmute  unmute a user                 (example: /unmute rob)
   /mutes   see who you've muted          (example: /mutes)
-  @<user>  send a message to a user      (example: @rob hello!)
+  /dm      send a message to a user      (example: /dm rob: hello!)
 `
 
 type command func(tc *tcpUser, arg string)
@@ -28,6 +28,7 @@ var commands = map[string]command{
 	"/mute":    muteCmd,
 	"/unmute":  unmuteCmd,
 	"/mutes":   mutesCmd,
+	"/dm":      dmCmd,
 }
 
 type tcpUser struct {
@@ -41,10 +42,8 @@ type tcpUser struct {
 
 func newTCPUser(conn net.Conn, h *hub) *tcpUser {
 	var name string
-	w := bufio.NewWriter(conn)
 	r := bufio.NewReader(conn)
-	w.WriteString("Please enter your username: ")
-	w.Flush()
+	conn.Write([]byte("Please enter your username: "))
 
 	for {
 		n, err := r.ReadString('\n')
@@ -52,12 +51,15 @@ func newTCPUser(conn net.Conn, h *hub) *tcpUser {
 			conn.Close()
 		}
 		n = strings.TrimSpace(n)
+		if n == "" {
+			conn.Write([]byte("Your name cannot be blank. Try again: "))
+			continue
+		}
 		if _, ok := h.users[n]; !ok {
 			name = n
 			break
 		}
-		w.WriteString("(chatbot): Sorry, the name " + n + " is already taken. Please choose another one: ")
-		w.Flush()
+		conn.Write([]byte("Sorry, the name " + n + " is already taken. Please choose another one: "))
 		continue
 	}
 
@@ -116,6 +118,7 @@ func (tc *tcpUser) write(message *message) error {
 		return tc.writeText("User " + message.channel + " isn't muted.\n")
 
 	case dm:
+		tc.writeText("(" + message.username + " to " + message.channel + "): " + message.text + "\n")
 	}
 	return nil
 }
@@ -223,4 +226,36 @@ func mutesCmd(tc *tcpUser, _ string) {
 	}
 	muteList := strings.Join(mutes, "\n  - ")
 	tc.writeText("You've muted:\n  - " + muteList + "\n")
+}
+
+func dmCmd(tc *tcpUser, arg string) {
+	i := strings.Index(arg, ":")
+	if i == -1 {
+		tc.writeText("/dm command not understood, you're missing a ':' from your command.\n")
+		return
+	}
+	msgs := strings.SplitAfterN(arg, ":", 2)
+	// sanity check, SplitAfterN should always return a length 2 slice
+	if len(msgs) < 2 {
+		tc.writeText("/dm command not understood, commands appears to be malformed. Type '/help' to see how to use each command.\n")
+		return
+	}
+
+	user := strings.TrimSpace(strings.TrimRight(msgs[0], ":"))
+	if user == "" {
+		tc.writeText("/dm command not understood, you're missing a username.\n")
+		return
+	}
+
+	if user == tc.username {
+		tc.writeText("You can't send a dm to yourself.\n")
+		return
+	}
+
+	msg := strings.TrimSpace(msgs[1])
+	if msg == "" {
+		tc.writeText("/dm command not understood, it looks like your message is blank.\n")
+		return
+	}
+	tc.send <- (newMessage(user, tc.username, msg, dm))
 }

@@ -326,8 +326,11 @@ func (h *hub) serve(port string) error {
 				h.logger.Println(err.Error())
 			}
 			// data race here, createTCPUser needs to be run in a goroutine
-			newUser := createTCPUser(conn, h)
-			h.userCh <- newUser
+			go func() {
+				h.userCh <- createTCPUser(conn, h)
+			}()
+			// newUser := createTCPUser(conn, h)
+			// h.userCh <- newUser
 		}
 	}()
 

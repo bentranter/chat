@@ -1,6 +1,7 @@
 package torbit
 
 import (
+	"crypto/tls"
 	"log"
 	"net"
 	"strings"
@@ -345,7 +346,33 @@ func (h *hub) serve(port string) error {
 	return nil
 }
 
-func ListenAndServe(l *log.Logger, port string) error {
+func (h *hub) serveSecure(port string) error {
+	server, err := tls.Listen("tcp", port, DefaultTLSConfig())
+	if err != nil {
+		h.logger.Println("Unable to start secure server:", err.Error())
+		return err
+	}
+	h.logger.Println("Secure server started on", port)
+
+	go func() {
+		for {
+			conn, err := server.Accept()
+			if err != nil {
+				h.logger.Println(err.Error())
+			}
+			go func() {
+				h.userCh <- createTCPUser(conn, h)
+			}()
+		}
+	}()
+
+	h.run()
+	return nil
+}
+
+func ListenAndServe(l *log.Logger, cfg *Config) error {
 	h := newHub(l)
-	return h.serve(port)
+	// need err chan
+	go h.serve(":" + cfg.TCPPortAddr)
+	return h.serveSecure(":" + cfg.TCPSPortAddr)
 }

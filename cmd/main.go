@@ -48,7 +48,7 @@ func main() {
 	}
 	logger := getLogger(cfg.LogFilename)
 
-	logger.Fatalln(torbit.ListenAndServe(logger, ":"+cfg.TCPPortAddr))
+	logger.Fatalln(torbit.ListenAndServe(logger, cfg))
 }
 
 func getConfig(dir string) (*torbit.Config, error) {

@@ -1,0 +1,6 @@
+TCPPortAddr = "3002"
+TCPSPortAddr = "3001"
+IPAddr = "localhost"
+LogFilename = ""
+HTTPPortAddr = "8000"
+HTTPSPortAddr = "8001"

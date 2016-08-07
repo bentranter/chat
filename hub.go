@@ -24,6 +24,16 @@ const (
 	quit
 )
 
+// A Config sets the options the server needs when it starts.
+type Config struct {
+	TCPPortAddr   string
+	TCPSPortAddr  string
+	HTTPPortAddr  string
+	HTTPSPortAddr string
+	IPAddr        string
+	LogFilename   string
+}
+
 type message struct {
 	channel     string
 	username    string
@@ -325,12 +335,9 @@ func (h *hub) serve(port string) error {
 			if err != nil {
 				h.logger.Println(err.Error())
 			}
-			// data race here, createTCPUser needs to be run in a goroutine
 			go func() {
 				h.userCh <- createTCPUser(conn, h)
 			}()
-			// newUser := createTCPUser(conn, h)
-			// h.userCh <- newUser
 		}
 	}()
 

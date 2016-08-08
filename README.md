@@ -58,7 +58,7 @@ Connect by doing:
 $ openssl s_client -connect <ipAddr>:<port>
 ```
 
-To exit this thing just hit Ctrl-c. Also, don't type a `B` ever, or it will try to send heartbeat and crash :P
+To exit this thing just hit Ctrl-c. Also, don't type a `B` ever, or it will try to send a heartbeat and crash :P
 
 #####Web
 

@@ -1,88 +1,66 @@
 package torbit
 
-// import (
-// 	"net/http"
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
 
-// 	"github.com/gorilla/websocket"
-// )
+	"github.com/gorilla/websocket"
+)
 
-// type wsClient struct {
-// 	name   string
-// 	room   string
-// 	conn   *websocket.Conn
-// 	server *server
-// }
+var errNameNotAvailable = errors.New("That name is not available")
 
-// func homeHandler(w http.ResponseWriter, r *http.Request) {
-// 	w.Header().Set("Content-Type", "text/html")
-// 	w.Write([]byte(homeHTML))
-// }
+type wsUser struct {
+	currentRoomName string
+	muted           map[string]bool
+	username        string
+	conn            *websocket.Conn
+	send            chan<- *message
+}
 
-// func newWsClientHandler(s *server, w http.ResponseWriter, r *http.Request) {
-// 	wsconn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
+func newWsUser(w http.ResponseWriter, r *http.Request, h *hub) (*wsUser, error) {
+	user := &struct {
+		Name string
+	}{}
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		return nil, err
+	}
 
-// 	var name string
-// 	wsconn.WriteMessage(websocket.TextMessage, []byte("(chatbot): Please enter your username.\n "))
-// 	for {
-// 		_, n, err := wsconn.ReadMessage()
-// 		if err != nil {
-// 			s.logger.Println("Error reading from new websocket connection: ", err.Error())
-// 			wsconn.Close()
-// 		}
-// 		username := string(n)
-// 		if _, ok := s.clients[username]; !ok {
-// 			name = string(username)
-// 			break
-// 		}
-// 		wsconn.WriteMessage(websocket.TextMessage, []byte("(chatbot): Sorry, the name "+username+" is already taken. Please choose another one.\n"))
-// 	}
+	if _, ok := h.users[user.Name]; ok {
+		return nil, errNameNotAvailable
+	}
 
-// 	ws := &wsClient{
-// 		name:   name,
-// 		room:   defaultRoomName,
-// 		conn:   wsconn,
-// 		server: s,
-// 	}
-// 	s.join <- ws
-// }
+	wsconn, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+	if err != nil {
+		return nil, err
+	}
 
-// func (ws *wsClient) getName() string {
-// 	return ws.name
-// }
+	return &wsUser{
+		currentRoomName: defaultChannelName,
+		muted:           make(map[string]bool),
+		username:        user.Name,
+		conn:            wsconn,
+		send:            h.messageCh,
+	}, nil
+}
 
-// func (ws *wsClient) getRoom() string {
-// 	return ws.room
-// }
+func (ws *wsUser) read() error {
+	for {
+		msg := &message{}
+		err := ws.conn.ReadJSON(msg)
+		if err != nil {
+			// not sure how to handle this based on severity...
+			continue
+		}
+		ws.send <- msg
+	}
+}
 
-// func (ws *wsClient) setRoom(room string) {
-// 	ws.room = room
-// }
+func (ws *wsUser) write(message *message) error {
+	return ws.conn.WriteJSON(message)
+}
 
-// func (ws *wsClient) read() {
-// 	for {
-// 		_, msg, err := ws.conn.ReadMessage()
-// 		if err != nil {
-// 			ws.server.leave <- ws
-// 			break
-// 		}
-// 		if ok := handleCommand(ws.server, ws, string(msg)); ok {
-// 			continue
-// 		}
-// 		ws.server.recv <- &message{
-// 			content:  "(" + ws.name + "): " + string(msg) + "\n",
-// 			roomName: ws.room,
-// 		}
-// 	}
-// }
-
-// func (ws *wsClient) write(msg string) error {
-// 	return ws.conn.WriteMessage(websocket.TextMessage, []byte(msg))
-// }
-
-// func (ws *wsClient) close() {
-// 	ws.conn.Close()
-// }
+func (ws *wsUser) close() {
+	ws.conn.Close()
+}

@@ -376,12 +376,12 @@ func (h *hub) serveSecure(port string) error {
 
 func (h *hub) serveHTTP(port string, mux http.Handler) error {
 	h.logger.Println("HTTP server started on", port)
-	return http.ListenAndServe(":"+port, mux)
+	return http.ListenAndServe(port, mux)
 }
 
 func (h *hub) serveHTTPS(port string, mux http.Handler) error {
 	server := &http.Server{
-		Addr:      ":" + port,
+		Addr:      port,
 		Handler:   mux,
 		TLSConfig: DefaultTLSConfig(),
 	}
@@ -392,10 +392,10 @@ func (h *hub) serveHTTPS(port string, mux http.Handler) error {
 func ListenAndServe(l *log.Logger, cfg *Config) error {
 	h := newHub(l)
 	errCh := make(chan error, 4)
-	mux := getServeMux()
+	mux := getServeMux(h)
 
-	go h.serveHTTP(cfg.HTTPPortAddr, mux)
-	go h.serveHTTPS(cfg.HTTPSPortAddr, mux)
+	go h.serveHTTP(":"+cfg.HTTPPortAddr, mux)
+	go h.serveHTTPS(":"+cfg.HTTPSPortAddr, mux)
 	go h.serve(":" + cfg.TCPPortAddr)
 	go h.serveSecure(":" + cfg.TCPSPortAddr)
 

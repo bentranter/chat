@@ -3,6 +3,8 @@ package torbit
 import (
 	"net"
 	"net/http"
+
+	"github.com/julienschmidt/httprouter"
 )
 
 type connection interface {
@@ -27,7 +29,7 @@ func createTCPUser(conn net.Conn, h *hub) *User {
 	}
 }
 
-func createWSUser(w http.ResponseWriter, r *http.Request, h *hub) *User {
+func createWSUser(h *hub, w http.ResponseWriter, r *http.Request, _ httprouter.Params) *User {
 	u, err := newWsUser(w, r, h)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -40,20 +40,20 @@ type Config struct {
 }
 
 type message struct {
-	channel     string
-	username    string
-	text        string
-	time        time.Time
-	messageType messageType
+	Channel     string
+	Username    string
+	Text        string
+	Time        time.Time
+	MessageType messageType
 }
 
 func newMessage(channel, username, text string, messageType messageType) *message {
 	return &message{
-		channel:     channel,
-		username:    username,
-		text:        text,
-		time:        time.Now(),
-		messageType: messageType,
+		Channel:     channel,
+		Username:    username,
+		Text:        text,
+		Time:        time.Now(),
+		MessageType: messageType,
 	}
 }
 
@@ -122,15 +122,15 @@ func (h *hub) newUser(u *User) {
 }
 
 func (h *hub) listUsers(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
 	var users []string
-	if m.channel != "" {
-		ch, ok := h.channels[m.channel]
+	if m.Channel != "" {
+		ch, ok := h.channels[m.Channel]
 		if !ok {
-			user.conn.write(newMessage("you", "server", "Channel "+m.channel+" doesn't exist.\n", text))
+			user.conn.write(newMessage("you", "server", "Channel "+m.Channel+" doesn't exist.\n", text))
 			return
 		}
 		for u := range ch.users {
@@ -141,12 +141,12 @@ func (h *hub) listUsers(m *message) {
 			users = append(users, user)
 		}
 	}
-	m.text = strings.Join(users, ",")
+	m.Text = strings.Join(users, ",")
 	user.conn.write(m)
 }
 
 func (h *hub) listChannels(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
@@ -154,71 +154,71 @@ func (h *hub) listChannels(m *message) {
 	for ch := range h.channels {
 		chans = append(chans, ch)
 	}
-	m.text = strings.Join(chans, ",")
+	m.Text = strings.Join(chans, ",")
 	user.conn.write(m)
 }
 
 func (h *hub) joinChannel(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
-	if ch, ok := h.channels[m.channel]; ok {
+	if ch, ok := h.channels[m.Channel]; ok {
 		ch.join(user)
 		return
 	}
-	m.text = "Sorry, the channel " + m.channel + " doesn't exist.\n"
-	m.messageType = text
+	m.Text = "Sorry, the channel " + m.Channel + " doesn't exist.\n"
+	m.MessageType = text
 	user.conn.write(m)
 }
 
 func (h *hub) leaveChannel(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
-	if m.channel == defaultChannelName {
-		m.text = "You can't leave the default channel (which is " + defaultChannelName + ").\n"
-		m.messageType = text
+	if m.Channel == defaultChannelName {
+		m.Text = "You can't leave the default channel (which is " + defaultChannelName + ").\n"
+		m.MessageType = text
 		user.conn.write(m)
 		return
 	}
-	ch, ok := h.channels[m.channel]
+	ch, ok := h.channels[m.Channel]
 	if !ok {
-		m.text = "The channel " + m.channel + " doesn't exist, so you can't leave it.\n"
-		m.messageType = text
+		m.Text = "The channel " + m.Channel + " doesn't exist, so you can't leave it.\n"
+		m.MessageType = text
 		user.conn.write(m)
 		return
 	}
 	if _, ok = ch.users[user]; !ok {
-		m.text = "You're not a member of the channel " + m.channel + ".\n"
-		m.messageType = text
+		m.Text = "You're not a member of the channel " + m.Channel + ".\n"
+		m.MessageType = text
 		user.conn.write(m)
 		return
 	}
 	ch.leave(user)
-	m.text = "Left channel " + m.channel + ". Returning you to the general channel.\n"
+	m.Text = "Left channel " + m.Channel + ". Returning you to the general channel.\n"
 	user.conn.write(m)
 }
 
 func (h *hub) createChannel(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
-	ch, ok := h.channels[m.channel]
+	ch, ok := h.channels[m.Channel]
 	if ok {
 		ch.join(user)
 		return
 	}
-	newCh := newChannel(m.channel, h.users)
-	h.channels[m.channel] = newCh
+	newCh := newChannel(m.Channel, h.users)
+	h.channels[m.Channel] = newCh
 	newCh.join(user)
 }
 
 func (h *hub) broadcast(m *message) {
-	h.logger.Printf("(%s to %s): %s", m.username, m.channel, m.text)
-	ch, ok := h.channels[m.channel]
+	h.logger.Printf("(%s to %s): %s", m.Username, m.Channel, m.Text)
+	ch, ok := h.channels[m.Channel]
 	if !ok {
 		return
 	}
@@ -226,13 +226,13 @@ func (h *hub) broadcast(m *message) {
 }
 
 func (h *hub) mute(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
-	if _, ok := h.users[m.channel]; !ok {
-		m.messageType = text
-		m.text = "The user " + m.channel + " doesn't exist.\n"
+	if _, ok := h.users[m.Channel]; !ok {
+		m.MessageType = text
+		m.Text = "The user " + m.Channel + " doesn't exist.\n"
 		user.conn.write(m)
 		return
 	}
@@ -240,13 +240,13 @@ func (h *hub) mute(m *message) {
 }
 
 func (h *hub) unmute(m *message) {
-	user, ok := h.users[m.username]
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
-	if _, ok := h.users[m.channel]; !ok {
-		m.messageType = text
-		m.text = "The user " + m.channel + " doesn't exist.\n"
+	if _, ok := h.users[m.Channel]; !ok {
+		m.MessageType = text
+		m.Text = "The user " + m.Channel + " doesn't exist.\n"
 		user.conn.write(m)
 		return
 	}
@@ -254,15 +254,15 @@ func (h *hub) unmute(m *message) {
 }
 
 func (h *hub) dm(m *message) {
-	h.logger.Printf("(%s to %s): %s", m.username, m.channel, m.text)
-	sender, ok := h.users[m.username]
+	h.logger.Printf("(%s to %s): %s", m.Username, m.Channel, m.Text)
+	sender, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
-	recipient, ok := h.users[m.channel]
+	recipient, ok := h.users[m.Channel]
 	if !ok {
-		m.messageType = text
-		m.text = "Sorry, the user " + m.channel + " doesn't exist.\n"
+		m.MessageType = text
+		m.Text = "Sorry, the user " + m.Channel + " doesn't exist.\n"
 		sender.conn.write(m)
 		return
 	}
@@ -271,13 +271,13 @@ func (h *hub) dm(m *message) {
 }
 
 func (h *hub) quit(m *message) {
-	h.logger.Printf("(%s to %s): %s", m.username, m.channel, m.text)
-	user, ok := h.users[m.username]
+	h.logger.Printf("(%s to %s): %s", m.Username, m.Channel, m.Text)
+	user, ok := h.users[m.Username]
 	if !ok {
 		return
 	}
 	user.conn.close()
-	delete(h.users, m.username)
+	delete(h.users, m.Username)
 	h.channels[defaultChannelName].broadcast(m)
 }
 
@@ -291,7 +291,7 @@ func (h *hub) run() {
 			h.newUser(user)
 
 		case message := <-h.messageCh:
-			switch message.messageType {
+			switch message.MessageType {
 
 			case join:
 				h.joinChannel(message)

@@ -92,40 +92,40 @@ func (tc *tcpUser) read() error {
 }
 
 func (tc *tcpUser) write(message *message) error {
-	if _, ok := tc.muted[message.username]; ok {
+	if _, ok := tc.muted[message.Username]; ok {
 		return nil
 	}
-	switch message.messageType {
+	switch message.MessageType {
 	case text:
-		return tc.writeText("(" + message.username + " to " + message.channel + "): " + message.text)
+		return tc.writeText("(" + message.Username + " to " + message.Channel + "): " + message.Text)
 
 	case listUsers, listChannels:
-		return tc.writeText(message.text + "\n")
+		return tc.writeText(message.Text + "\n")
 
 	case join, create:
-		tc.currentRoomName = message.channel
-		return tc.writeText(message.text)
+		tc.currentRoomName = message.Channel
+		return tc.writeText(message.Text)
 
 	case leave:
 		tc.currentRoomName = defaultChannelName
-		return tc.writeText(message.text)
+		return tc.writeText(message.Text)
 
 	case mute:
-		if _, ok := tc.muted[message.channel]; !ok {
-			tc.muted[message.channel] = true
-			return tc.writeText(message.text)
+		if _, ok := tc.muted[message.Channel]; !ok {
+			tc.muted[message.Channel] = true
+			return tc.writeText(message.Text)
 		}
-		return tc.writeText("User " + message.channel + " is already muted.\n")
+		return tc.writeText("User " + message.Channel + " is already muted.\n")
 
 	case unmute:
-		if _, ok := tc.muted[message.channel]; ok {
-			delete(tc.muted, message.channel)
-			return tc.writeText(message.text)
+		if _, ok := tc.muted[message.Channel]; ok {
+			delete(tc.muted, message.Channel)
+			return tc.writeText(message.Text)
 		}
-		return tc.writeText("User " + message.channel + " isn't muted.\n")
+		return tc.writeText("User " + message.Channel + " isn't muted.\n")
 
 	case dm:
-		tc.writeText("(" + message.username + " to " + message.channel + "): " + message.text + "\n")
+		tc.writeText("(" + message.Username + " to " + message.Channel + "): " + message.Text + "\n")
 	}
 	return nil
 }

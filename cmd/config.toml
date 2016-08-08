@@ -1,4 +1,4 @@
-TCPPortAddr = "3002"
+TCPPortAddr = "3000"
 TCPSPortAddr = "3001"
 IPAddr = "localhost"
 LogFilename = ""

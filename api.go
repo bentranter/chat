@@ -26,7 +26,7 @@ func handle(hub *hub, h handler) httprouter.Handle {
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	w.Write([]byte("Nice"))
+	w.Write([]byte("Hello! Try sending a message via a POST request to /messages, or connecting via websockets by sending a POST request with your desired username to /ws.\n"))
 }
 
 func createWSUserHandler(h *hub, w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -44,4 +44,5 @@ func newMessageHandler(h *hub, w http.ResponseWriter, r *http.Request, _ httprou
 	defer r.Body.Close()
 
 	h.messageCh <- msg
+	w.Write([]byte("Sent message " + msg.Text + " as user " + msg.Username + " to channel " + msg.Channel + "\n"))
 }

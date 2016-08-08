@@ -46,9 +46,9 @@ func main() {
 	if cfg.IPAddr == "" {
 		cfg.IPAddr = *ipAddr
 	}
-	logger := getLogger(cfg.LogFilename)
 
-	logger.Fatalln(torbit.ListenAndServe(logger, cfg))
+	logger := getLogger(cfg.LogFilename)
+	torbit.ListenAndServe(logger, cfg)
 }
 
 func getConfig(dir string) (*torbit.Config, error) {

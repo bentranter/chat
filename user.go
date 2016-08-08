@@ -18,7 +18,7 @@ type User struct {
 	conn connection
 }
 
-func createTCPUser(conn net.Conn, h *hub, w http.ResponseWriter) *User {
+func createTCPUser(conn net.Conn, h *hub) *User {
 	u := newTCPUser(conn, h)
 	u.write(newMessage(u.currentRoomName, u.username, chatHelp, text))
 	return &User{

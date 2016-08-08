@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"log"
 	"math/big"
 	"time"
 )
@@ -15,12 +16,11 @@ func makeSelfSignedCert() (*tls.Certificate, error) {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		return nil, err // might be good to add a message to the error
-		// mentioning being unable to gen a serial no
+		return nil, err
 	}
 	cert := &x509.Certificate{
 		SerialNumber: serialNumber,
-		Subject:      pkix.Name{Organization: []string{"Torbit Go Programming Challenge Self-Signed"}},
+		Subject:      pkix.Name{Organization: []string{"Chat Self-Signed Dev Cert"}},
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(24 * time.Hour * 31), // a month-ish
 		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
@@ -45,8 +45,10 @@ func makeSelfSignedCert() (*tls.Certificate, error) {
 func DefaultTLSConfig() *tls.Config {
 	cert, err := makeSelfSignedCert()
 	if err != nil {
-		println(err.Error())
-		return nil // DONT DO THIS
+		// You'll and obvious error if the nil config is returned, so for simplicity
+		// sake, just return nil here. In a real app, this would be a horrible idea.
+		log.Printf("Unable to generate a self signed cert: %s\n", err.Error())
+		return nil
 	}
 
 	pool := x509.NewCertPool()

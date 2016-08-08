@@ -4,7 +4,11 @@ import (
 	"crypto/tls"
 	"log"
 	"net"
+	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -370,9 +374,43 @@ func (h *hub) serveSecure(port string) error {
 	return nil
 }
 
+func (h *hub) serveHTTP(port string, mux http.Handler) error {
+	h.logger.Println("HTTP server started on", port)
+	return http.ListenAndServe(":"+port, mux)
+}
+
+func (h *hub) serveHTTPS(port string, mux http.Handler) error {
+	server := &http.Server{
+		Addr:      ":" + port,
+		Handler:   mux,
+		TLSConfig: DefaultTLSConfig(),
+	}
+	h.logger.Println("HTTPS server started on", port)
+	return server.ListenAndServeTLS("", "")
+}
+
 func ListenAndServe(l *log.Logger, cfg *Config) error {
 	h := newHub(l)
-	// need err chan
+	errCh := make(chan error, 4)
+	mux := getServeMux()
+
+	go h.serveHTTP(cfg.HTTPPortAddr, mux)
+	go h.serveHTTPS(cfg.HTTPSPortAddr, mux)
 	go h.serve(":" + cfg.TCPPortAddr)
-	return h.serveSecure(":" + cfg.TCPSPortAddr)
+	go h.serveSecure(":" + cfg.TCPSPortAddr)
+
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
+
+	for {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				h.logger.Fatalf("%s\n", err.Error())
+			}
+		case s := <-signalCh:
+			log.Printf("Captured %v. Exiting...\n", s)
+			os.Exit(1)
+		}
+	}
 }

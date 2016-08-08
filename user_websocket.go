@@ -26,6 +26,7 @@ func newWsUser(w http.ResponseWriter, r *http.Request, h *hub) (*wsUser, error) 
 	if err != nil {
 		return nil, err
 	}
+	defer r.Body.Close()
 
 	if _, ok := h.users[user.Name]; ok {
 		return nil, errNameNotAvailable

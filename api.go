@@ -7,6 +7,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
+// getServeMux returns a serve mux to be used in an `http.Server`
 func getServeMux(h *hub) http.Handler {
 	r := httprouter.New()
 
@@ -17,6 +18,8 @@ func getServeMux(h *hub) http.Handler {
 	return r
 }
 
+// handler is the type that any HTTP handler needing to communicate with the
+// server must use
 type handler func(h *hub, w http.ResponseWriter, r *http.Request, ps httprouter.Params)
 
 func handle(hub *hub, h handler) httprouter.Handle {

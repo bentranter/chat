@@ -10,6 +10,7 @@ import (
 
 var errNameNotAvailable = errors.New("That name is not available")
 
+// A wsUser represents a client connected via a websocket.
 type wsUser struct {
 	currentRoomName string
 	muted           map[string]bool

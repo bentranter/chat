@@ -41,7 +41,8 @@ func makeSelfSignedCert() (*tls.Certificate, error) {
 	}, err
 }
 
-// DefaultTLSConfig is the default blah
+// DefaultTLSConfig is the default config used for serving content with TLS,
+// such as in the HTTPS server.
 func DefaultTLSConfig() *tls.Config {
 	cert, err := makeSelfSignedCert()
 	if err != nil {

@@ -39,6 +39,8 @@ type Config struct {
 	LogFilename   string
 }
 
+// A message contains the information needed for the server and clients to
+// communicate.
 type message struct {
 	Channel     string
 	Username    string
@@ -57,6 +59,8 @@ func newMessage(channel, username, text string, messageType messageType) *messag
 	}
 }
 
+// A channel is the equivalent of a "chat room", containing a name,
+// and information about the users belonging to it.
 type channel struct {
 	name        string
 	users       map[*User]bool
@@ -91,12 +95,15 @@ func (c *channel) broadcast(m *message) {
 		}
 		err := u.conn.write(m)
 		if err != nil {
-			// handle this didderefent
-			println("Broadcast error: ", err.Error())
+			// for debugging only, this needs to use the actual logger
+			log.Println("Broadcast error: ", err.Error())
 		}
 	}
 }
 
+// A hub is the server. It contains all the information about connected
+// clients, and sends and receives messages, essentially acting as a message
+// broker.
 type hub struct {
 	logger    *log.Logger
 	channels  map[string]*channel
@@ -389,6 +396,7 @@ func (h *hub) serveHTTPS(port string, mux http.Handler) error {
 	return server.ListenAndServeTLS("", "")
 }
 
+// ListenAndServe starts the TCP and HTTP servers based on the given config.
 func ListenAndServe(l *log.Logger, cfg *Config) error {
 	h := newHub(l)
 	errCh := make(chan error, 4)

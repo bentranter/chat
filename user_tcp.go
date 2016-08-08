@@ -22,6 +22,8 @@ Commands:
 
 type command func(tc *tcpUser, arg string)
 
+// commands are each action a client is able to perform besides just sending
+// plaintext.
 var commands = map[string]command{
 	"/help":      helpCmd,
 	"/listusers": listUsersCmd,
@@ -35,6 +37,8 @@ var commands = map[string]command{
 	"/dm":        dmCmd,
 }
 
+// a tcpUser represents a telnet user, relying on text-only commands to
+// communicate.
 type tcpUser struct {
 	currentRoomName string
 	muted           map[string]bool

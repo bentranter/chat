@@ -3,6 +3,16 @@ Chat
 
 A TCP and WebSocket powered chatroom.
 
+#####Features
+
+1. Access over TCP via telnet (or over TCP with TLS via openssl s_client)
+2. Send receive messages
+3. Multiple chat rooms
+4. Support for commands, including muting users and direct messaging users.
+5. Reading from a config file, which can be overridden via flags.
+6. Support for access over websockets (but no JavaScript client :( )
+7. Proof-of-concept support for a REST API.
+
 Usage
 ---
 
@@ -92,8 +102,12 @@ In a websocket implementation, messages are sent and received as JSON. It's up t
 
 For the API, the API could implement the same interface used for the clients, but as a default "API" user. It'd be a lot like the websocket implementation, relying on JSON to encode the messages.
 
+For the crypto/TLS stuff, I just generate a self-signed cert each time the server starts up to make dev easier. This could be changed to accept a config value specifying an actual cert to use for production.
+
 Limitations & Known Bugs
 ---
+
+I had really hoped to have zero limitations and bugs, but due to time constraints that wasn't possible. If I had more time to put into this I would've gladly, but it's too busy on my team to continue adding to this.
 
 * There are no tests.
 
@@ -110,3 +124,9 @@ I just didn't have the time to implement it, even though it's pretty straightfor
 * Variable names and structure of logged/broadcasted messages are inconsistent.
 
 For example, some functions will accept something like, `(m *message)`, while others would accept `(message *message)`. I would avoid doing this in an _actual_ codebase, but since this is a prototype I didn't bother to go through and fix it.
+
+* The hub.run method's switch statement would be better expressed using a func map
+
+* The TCP client tracks it's own muted users
+
+The server should be the only source of truth, and as a result should maintain the mute list for clients.

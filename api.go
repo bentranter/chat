@@ -1,4 +1,4 @@
-package torbit
+package chat
 
 import (
 	"encoding/json"

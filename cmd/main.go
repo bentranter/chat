@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
-	"github.com/bentranter/torbit"
+	"github.com/bentranter/chat"
 )
 
 const cfgFilename = "config.toml"

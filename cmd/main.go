@@ -48,11 +48,11 @@ func main() {
 	}
 
 	logger := getLogger(cfg.LogFilename)
-	torbit.ListenAndServe(logger, cfg)
+	chat.ListenAndServe(logger, cfg)
 }
 
-func getConfig(dir string) (*torbit.Config, error) {
-	cfg := &torbit.Config{}
+func getConfig(dir string) (*chat.Config, error) {
+	cfg := &chat.Config{}
 	_, err := os.Stat(dir)
 	if err != nil {
 		return cfg, err

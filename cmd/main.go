@@ -64,6 +64,7 @@ func getConfig(dir string) (*chat.Config, error) {
 	}
 	return cfg, nil
 }
+
 func getLogger(filename string) *log.Logger {
 	prefix := "Chat: "
 	flag := log.Lshortfile | log.Ldate
